@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#17130f">
+  <title>三国武将卡牌世界杯</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="characters.js" defer></script>
+  <script src="game.js" defer></script>
+  <script src="playerMode.js" defer></script>
+  <script src="audioManager.js" defer></script>
+</head>
+<body>
+  <div class="page-texture" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <button class="brand" type="button" data-action="home" aria-label="返回首页">
+      <span class="brand-seal">三</span>
+      <span><strong>群英竞逐</strong><small>武将卡牌世界杯</small></span>
+    </button>
+    <div class="header-tools">
+      <span class="edition">玩家模式 · 完整世界杯</span>
+      <div class="music-control" aria-label="背景音乐控制">
+        <button id="music-toggle" type="button" aria-pressed="false">🔇 音乐</button>
+        <label><span>音量</span><input id="music-volume" type="range" min="0" max="100" value="30" aria-label="背景音乐音量"></label>
+      </div>
+    </div>
+  </header>
+
+  <audio id="background-music" loop preload="none" data-src="assets/audio/bgm.mp3"></audio>
+
+  <main>
+    <section id="home-view" class="view is-active" aria-labelledby="home-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span></span> 一百五十将 · 问鼎天下 <span></span></p>
+        <h1 id="home-title">三国武将<br><em>卡牌世界杯</em></h1>
+        <p class="hero-lead">乱世为局，群雄为牌。150位三国豪杰，角逐最终王者。</p>
+        <div class="hero-actions">
+          <button class="primary-button" type="button" data-action="open-gallery">
+            <span>武将图鉴</span><b>阅览一百五十将</b>
+          </button>
+          <button class="ghost-button" type="button" data-action="start-game">
+            <span>开始世界杯</span><b>开启本届抽签</b>
+          </button>
+        </div>
+        <ul class="hero-facts" aria-label="游戏信息">
+          <li><strong>150</strong><span>完整卡池</span></li>
+          <li><strong>4</strong><span>天下阵营</span></li>
+          <li><strong>12</strong><span>品阶体系</span></li>
+        </ul>
+      </div>
+
+      <div class="hero-showcase" aria-label="典藏卡牌预览">
+        <div class="sun-disc" aria-hidden="true"></div>
+        <div id="featured-cards" class="featured-cards"></div>
+        <p class="showcase-caption">首批典藏武将 · 测试卡面</p>
+      </div>
+    </section>
+
+    <section id="gallery-view" class="view gallery-view" aria-labelledby="gallery-title" hidden>
+      <div class="gallery-heading">
+        <div>
+          <button class="text-button" type="button" data-action="home">← 返回首页</button>
+          <p class="eyebrow gallery-eyebrow">群英谱 · 第一卷</p>
+          <h2 id="gallery-title">武将图鉴</h2>
+          <p>完整收录150名武将；排名、品阶与战力均严格按照武力值。</p>
+        </div>
+        <div class="collection-count"><strong id="visible-count">150</strong><span>位武将</span></div>
+      </div>
+
+      <div class="gallery-toolbar" aria-label="图鉴筛选与排序">
+        <div class="faction-filters" role="group" aria-label="按阵营筛选">
+          <button class="filter-button is-active" type="button" data-faction="全部">全部</button>
+          <button class="filter-button" type="button" data-faction="魏">魏</button>
+          <button class="filter-button" type="button" data-faction="蜀">蜀</button>
+          <button class="filter-button" type="button" data-faction="吴">吴</button>
+          <button class="filter-button" type="button" data-faction="群">群</button>
+        </div>
+        <label class="sort-control">
+          <span>排序</span>
+          <select id="sort-select">
+            <option value="rank">武力排名</option>
+            <option value="power">战力</option>
+            <option value="martial">武力</option>
+            <option value="intelligence">智力</option>
+            <option value="command">统率</option>
+          </select>
+        </label>
+      </div>
+
+      <div id="card-grid" class="card-grid" aria-live="polite"></div>
+    </section>
+
+    <section id="cup-view" class="view cup-view" aria-labelledby="cup-title" hidden>
+      <div class="cup-heading">
+        <div>
+          <button class="text-button" type="button" data-action="home">← 返回首页</button>
+          <p class="eyebrow gallery-eyebrow">群雄入局 · 随机编组</p>
+          <h2 id="cup-title">本届世界杯抽签</h2>
+          <p>从150名武将中随机选出128人，组成32支四人球队，再分入八个小组。</p>
+        </div>
+        <button id="draw-button" class="primary-button draw-button" type="button" data-action="new-draw">
+          <span>开始新世界杯</span><b>每次都会重新随机</b>
+        </button>
+      </div>
+
+      <div class="draw-summary" aria-live="polite">
+        <div><strong id="participant-count">—</strong><span>参赛武将</span></div>
+        <i aria-hidden="true"></i>
+        <div><strong id="not-selected-count">—</strong><span>未抽中</span></div>
+        <i aria-hidden="true"></i>
+        <div><strong id="team-count">—</strong><span>四人球队</span></div>
+        <i aria-hidden="true"></i>
+        <div><strong id="group-count">—</strong><span>小组</span></div>
+      </div>
+
+      <nav class="cup-navigation" aria-label="世界杯抽签结果">
+        <button type="button" data-cup-page="overview" class="is-active">抽签总览</button>
+        <button type="button" data-cup-page="participants" disabled>128名参赛武将</button>
+        <button type="button" data-cup-page="not-selected" disabled>22名未抽中武将</button>
+        <button type="button" data-cup-page="teams" disabled>32支球队</button>
+        <button type="button" data-cup-page="groups" disabled>8个小组</button>
+        <button type="button" data-cup-page="player-mode" disabled>我的征程</button>
+        <button type="button" data-cup-page="group-stage" disabled>小组赛</button>
+        <button type="button" data-cup-page="round-of-16" disabled>16强</button>
+        <button type="button" data-cup-page="quarter-finals" disabled>8强</button>
+        <button type="button" data-cup-page="semi-finals" disabled>半决赛</button>
+        <button type="button" data-cup-page="third-place" disabled>季军赛</button>
+        <button type="button" data-cup-page="final" disabled>决赛</button>
+        <button type="button" data-cup-page="champion" disabled>本届冠军</button>
+      </nav>
+
+      <div id="cup-content" class="cup-content" aria-live="polite">
+        <div class="draw-placeholder">
+          <span class="draw-seal">签</span>
+          <h3>等待本届抽签</h3>
+          <p>点击“开始新世界杯”，一次完成参赛抽取、球队组建与小组分配。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>三国武将卡牌世界杯</span>
+    <i aria-hidden="true"></i>
+    <span>第三阶段赛事版本</span>
+  </footer>
+
+  <dialog id="character-dialog" class="character-dialog" aria-labelledby="dialog-name">
+    <button class="dialog-close" type="button" aria-label="关闭详情">×</button>
+    <div id="dialog-content"></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
