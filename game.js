@@ -2,6 +2,8 @@
 
 (() => {
   const characters = window.CHARACTERS;
+  const calculateCombatPower = window.calculateCombatPower;
+  if (typeof calculateCombatPower !== "function") throw new TypeError("缺少统一的综合战力计算函数");
   const homeView = document.querySelector("#home-view");
   const galleryView = document.querySelector("#gallery-view");
   const cupView = document.querySelector("#cup-view");
@@ -41,10 +43,10 @@
 
   // 小组赛与全部淘汰赛统一使用的正式三阶段单场规则。
   const MATCH_RULES = Object.freeze({
-    version: 3,
+    version: 4,
     teamSize: 4,
     usePreMatchTeamPower: false,
-    allowedAttribute: "martial",
+    allowedAttribute: "combatPower",
     resetRosterBeforeEveryMatch: true,
     phaseOne: Object.freeze({
       name: "四场跨队单挑",
@@ -52,8 +54,8 @@
       pairing: "shuffle-each-team-then-one-to-one",
       crossTeamOnly: true,
       appearancesPerCharacter: 1,
-      winnerRule: "higher-martial-survives",
-      loserRule: "lower-martial-eliminated",
+      winnerRule: "higher-combat-power-survives",
+      loserRule: "lower-combat-power-eliminated; equal-power-both-eliminated",
       randomModifier: false
     }),
     phaseTwo: Object.freeze({
@@ -64,17 +66,17 @@
       crossTeamOnly: true,
       appearancesPerCharacter: 1,
       extraSurvivors: "bye-and-advance",
-      winnerRule: "higher-martial-survives",
-      loserRule: "lower-martial-eliminated",
+      winnerRule: "higher-combat-power-survives",
+      loserRule: "lower-combat-power-eliminated; equal-power-both-eliminated",
       randomModifier: false
     }),
     phaseThree: Object.freeze({
-      name: "最终幸存阵容总武力决胜",
+      name: "最终幸存阵容总战力决胜",
       enterOnlyWhenBothTeamsHaveSurvivors: true,
       continueDuels: false,
-      score: "sum-of-survivors-martial",
+      score: "sum-of-survivors-combat-power",
       tieBreak: Object.freeze([
-        "highest-survivor-martial",
+        "highest-survivor-combat-power",
         "random-50-percent"
       ])
     }),
@@ -114,23 +116,35 @@
       teamName: team.name,
       side: team.side,
       name: character.name,
-      martial: character.martial
+      martial: character.martial,
+      intelligence: character.intelligence,
+      power: calculateCombatPower(character)
     });
   }
 
-  function resolveMartialDuel(characterA, characterB, teamA, teamB, duelNumber) {
-    if (characterA.martial === characterB.martial) {
-      throw new RangeError(`单挑双方武力相同：${characterA.name}与${characterB.name}`);
-    }
+  function resolveCombatDuel(characterA, characterB, teamA, teamB, duelNumber) {
     const fighterA = fighterSnapshot(characterA, teamA);
     const fighterB = fighterSnapshot(characterB, teamB);
-    const aWins = characterA.martial > characterB.martial;
+    const powerA = calculateCombatPower(characterA);
+    const powerB = calculateCombatPower(characterB);
+    if (powerA === powerB) {
+      return Object.freeze({
+        duelNumber,
+        fighterA,
+        fighterB,
+        winner: null,
+        eliminated: Object.freeze([fighterA, fighterB]),
+        mutualDestruction: true
+      });
+    }
+    const aWins = powerA > powerB;
     return Object.freeze({
       duelNumber,
       fighterA,
       fighterB,
       winner: aWins ? fighterA : fighterB,
-      eliminated: aWins ? fighterB : fighterA
+      eliminated: Object.freeze([aWins ? fighterB : fighterA]),
+      mutualDestruction: false
     });
   }
 
@@ -164,13 +178,13 @@
     const phaseOneA = shuffle(teamA.roster, random);
     const phaseOneB = shuffle(teamB.roster, random);
     const phaseOneDuels = phaseOneA.map((characterA, index) => (
-      resolveMartialDuel(characterA, phaseOneB[index], teamA, teamB, index + 1)
+      resolveCombatDuel(characterA, phaseOneB[index], teamA, teamB, index + 1)
     ));
     let survivorsA = phaseOneDuels
-      .filter((duel) => duel.winner.side === "A")
+      .filter((duel) => duel.winner?.side === "A")
       .map((duel) => characters.find((character) => character.name === duel.winner.name));
     let survivorsB = phaseOneDuels
-      .filter((duel) => duel.winner.side === "B")
+      .filter((duel) => duel.winner?.side === "B")
       .map((duel) => characters.find((character) => character.name === duel.winner.name));
 
     const phaseOne = Object.freeze({
@@ -184,7 +198,9 @@
     });
 
     if (survivorsA.length === 0 || survivorsB.length === 0) {
-      const winningTeam = survivorsA.length ? teamA : teamB;
+      const winningTeam = survivorsA.length === survivorsB.length
+        ? (random() < 0.5 ? teamA : teamB)
+        : (survivorsA.length ? teamA : teamB);
       return Object.freeze({
         rulesVersion: MATCH_RULES.version,
         teams: Object.freeze({ A: { id: teamA.id, name: teamA.name }, B: { id: teamB.id, name: teamB.name } }),
@@ -192,7 +208,7 @@
         phaseTwo: skippedPhase("第一阶段后一方已全灭"),
         phaseThree: skippedPhase("第一阶段后一方已全灭"),
         endedAfter: "phase-one",
-        winner: winnerSnapshot(winningTeam, "opponent-eliminated-in-phase-one")
+        winner: winnerSnapshot(winningTeam, survivorsA.length || survivorsB.length ? "opponent-eliminated-in-phase-one" : "mutual-annihilation-random")
       });
     }
 
@@ -204,18 +220,18 @@
     const byesA = shuffledSurvivorsA.slice(phaseTwoDuelCount);
     const byesB = shuffledSurvivorsB.slice(phaseTwoDuelCount);
     const phaseTwoDuels = participantsA.map((characterA, index) => (
-      resolveMartialDuel(characterA, participantsB[index], teamA, teamB, index + 1)
+      resolveCombatDuel(characterA, participantsB[index], teamA, teamB, index + 1)
     ));
     survivorsA = [
       ...byesA,
       ...phaseTwoDuels
-        .filter((duel) => duel.winner.side === "A")
+        .filter((duel) => duel.winner?.side === "A")
         .map((duel) => characters.find((character) => character.name === duel.winner.name))
     ];
     survivorsB = [
       ...byesB,
       ...phaseTwoDuels
-        .filter((duel) => duel.winner.side === "B")
+        .filter((duel) => duel.winner?.side === "B")
         .map((duel) => characters.find((character) => character.name === duel.winner.name))
     ];
 
@@ -238,7 +254,9 @@
     });
 
     if (survivorsA.length === 0 || survivorsB.length === 0) {
-      const winningTeam = survivorsA.length ? teamA : teamB;
+      const winningTeam = survivorsA.length === survivorsB.length
+        ? (random() < 0.5 ? teamA : teamB)
+        : (survivorsA.length ? teamA : teamB);
       return Object.freeze({
         rulesVersion: MATCH_RULES.version,
         teams: Object.freeze({ A: { id: teamA.id, name: teamA.name }, B: { id: teamB.id, name: teamB.name } }),
@@ -246,22 +264,22 @@
         phaseTwo,
         phaseThree: skippedPhase("第二阶段后一方已全灭"),
         endedAfter: "phase-two",
-        winner: winnerSnapshot(winningTeam, "opponent-eliminated-in-phase-two")
+        winner: winnerSnapshot(winningTeam, survivorsA.length || survivorsB.length ? "opponent-eliminated-in-phase-two" : "mutual-annihilation-random")
       });
     }
 
-    const finalPowerA = survivorsA.reduce((total, character) => total + character.martial, 0);
-    const finalPowerB = survivorsB.reduce((total, character) => total + character.martial, 0);
-    const highestMartialA = Math.max(...survivorsA.map((character) => character.martial));
-    const highestMartialB = Math.max(...survivorsB.map((character) => character.martial));
+    const finalPowerA = survivorsA.reduce((total, character) => total + calculateCombatPower(character), 0);
+    const finalPowerB = survivorsB.reduce((total, character) => total + calculateCombatPower(character), 0);
+    const highestPowerA = Math.max(...survivorsA.map(calculateCombatPower));
+    const highestPowerB = Math.max(...survivorsB.map(calculateCombatPower));
     let winningTeam;
     let decision;
     if (finalPowerA !== finalPowerB) {
       winningTeam = finalPowerA > finalPowerB ? teamA : teamB;
       decision = "final-power";
-    } else if (highestMartialA !== highestMartialB) {
-      winningTeam = highestMartialA > highestMartialB ? teamA : teamB;
-      decision = "highest-survivor-martial";
+    } else if (highestPowerA !== highestPowerB) {
+      winningTeam = highestPowerA > highestPowerB ? teamA : teamB;
+      decision = "highest-survivor-combat-power";
     } else {
       winningTeam = random() < 0.5 ? teamA : teamB;
       decision = "random-50-percent";
@@ -274,7 +292,7 @@
         B: survivorSummary(teamB, survivorsB)
       }),
       finalPower: Object.freeze({ A: finalPowerA, B: finalPowerB }),
-      highestMartial: Object.freeze({ A: highestMartialA, B: highestMartialB }),
+      highestPower: Object.freeze({ A: highestPowerA, B: highestPowerB }),
       decision
     });
 
@@ -409,8 +427,8 @@
     return battleRecord.phaseOne.survivors;
   }
 
-  function sumSurvivorMartial(summary) {
-    return summary.members.reduce((total, fighter) => total + fighter.martial, 0);
+  function sumSurvivorPower(summary) {
+    return summary.members.reduce((total, fighter) => total + fighter.power, 0);
   }
 
   function playScheduledMatch(match, draw, random = Math.random) {
@@ -431,8 +449,8 @@
       throw new RangeError("战报胜者不属于本场比赛");
     }
     const survivors = getFinalSurvivors(battleRecord);
-    const powerA = sumSurvivorMartial(survivors.A);
-    const powerB = sumSurvivorMartial(survivors.B);
+    const powerA = sumSurvivorPower(survivors.A);
+    const powerB = sumSurvivorPower(survivors.B);
     match.status = "completed";
     match.winnerTeamId = battleRecord.winner.teamId;
     match.loserTeamId = battleRecord.winner.teamId === teamA.id ? teamB.id : teamA.id;
@@ -453,6 +471,7 @@
       won: 0,
       lost: 0,
       points: 0,
+      headToHeadPoints: 0,
       netSurvivorPower: 0,
       totalSurvivorPower: 0,
       drawLot: tournament.groupStage.drawLots[team.id]
@@ -481,17 +500,23 @@
       }
     });
 
-    const pointGroupSize = new Map();
-    rows.forEach((row) => pointGroupSize.set(row.points, (pointGroupSize.get(row.points) || 0) + 1));
+    // 同积分时建立同分球队内部的小积分榜；二队同分就是直接胜负，
+    // 三队或四队同分则先比较彼此交手所得积分，再比较净剩余战力。
+    const rowsByPoints = new Map();
+    rows.forEach((row) => {
+      if (!rowsByPoints.has(row.points)) rowsByPoints.set(row.points, []);
+      rowsByPoints.get(row.points).push(row);
+    });
+    rowsByPoints.forEach((tiedRows) => {
+      if (tiedRows.length < 2) return;
+      const tiedIds = new Set(tiedRows.map((row) => row.teamId));
+      completedMatches
+        .filter((match) => tiedIds.has(match.teamAId) && tiedIds.has(match.teamBId))
+        .forEach((match) => { rowById.get(match.winnerTeamId).headToHeadPoints += 3; });
+    });
     return rows.sort((left, right) => {
       if (left.points !== right.points) return right.points - left.points;
-      if (pointGroupSize.get(left.points) === 2) {
-        const directMatch = completedMatches.find((match) => (
-          (match.teamAId === left.teamId && match.teamBId === right.teamId)
-          || (match.teamAId === right.teamId && match.teamBId === left.teamId)
-        ));
-        if (directMatch) return directMatch.winnerTeamId === left.teamId ? -1 : 1;
-      }
+      if (left.headToHeadPoints !== right.headToHeadPoints) return right.headToHeadPoints - left.headToHeadPoints;
       if (left.netSurvivorPower !== right.netSurvivorPower) {
         return right.netSurvivorPower - left.netSurvivorPower;
       }
@@ -671,7 +696,7 @@
 
   function validateCharacterData(data) {
     const requiredText = ["name", "faction", "tier", "subTier", "trait", "portrait"];
-    const requiredStats = ["rank", "power", "martial", "intelligence", "command", "willpower"];
+    const requiredStats = ["rank", "power", "martial", "intelligence"];
     const errors = [];
     if (!Array.isArray(data) || data.length !== 150) {
       errors.push(`完整卡池应为150人，当前为${Array.isArray(data) ? data.length : 0}人`);
@@ -686,7 +711,8 @@
       });
       requiredStats.forEach((field) => {
         const maximum = field === "rank" ? 150 : 100;
-        if (!Number.isFinite(character[field]) || character[field] < 1 || character[field] > maximum) {
+        const minimum = 1;
+        if (!Number.isFinite(character[field]) || character[field] < minimum || character[field] > maximum) {
           errors.push(`${character.name || `第${index + 1}项`}的${field}无效`);
         }
       });
@@ -696,7 +722,17 @@
       if (!["天", "地", "人", "凡"].includes(character.tier)) errors.push(`${character.name}等级无效`);
       if (!["一", "二", "三"].includes(character.subTier)) errors.push(`${character.name}小等级无效`);
       if (!character.trait.trim()) errors.push(`${character.name}缺少特性`);
-      if (character.power !== character.martial) errors.push(`${character.name}战力不等于武力`);
+      if (character.power !== calculateCombatPower(character)) errors.push(`${character.name}综合战力不等于武力与智力中的较高值`);
+      const expectedTier = character.rank <= 30 ? "天" : character.rank <= 60 ? "地" : character.rank <= 90 ? "人" : "凡";
+      if (character.tier !== expectedTier) errors.push(`${character.name}等级与综合排名不一致`);
+      const expectedSubTier = character.rank <= 30
+        ? character.rank <= 10 ? "一" : character.rank <= 20 ? "二" : "三"
+        : character.rank <= 60
+          ? character.rank <= 40 ? "一" : character.rank <= 50 ? "二" : "三"
+          : character.rank <= 90
+            ? character.rank <= 70 ? "一" : character.rank <= 80 ? "二" : "三"
+            : character.rank <= 110 ? "一" : character.rank <= 130 ? "二" : "三";
+      if (character.subTier !== expectedSubTier) errors.push(`${character.name}小等级与综合排名不一致`);
       names.add(character.name);
       ranks.add(character.rank);
     });
@@ -706,25 +742,28 @@
     }
     const byRank = [...data].sort((a, b) => a.rank - b.rank);
     for (let index = 1; index < byRank.length; index += 1) {
-      if (byRank[index - 1].martial <= byRank[index].martial) {
-        errors.push(`武力排名顺序错误：${byRank[index - 1].name} / ${byRank[index].name}`);
+      if (calculateCombatPower(byRank[index - 1]) < calculateCombatPower(byRank[index])) {
+        errors.push(`综合战力排名顺序错误：${byRank[index - 1].name} / ${byRank[index].name}`);
       }
     }
     return errors;
   }
 
   function portraitMarkup(character) {
-    return `<span class="portrait-mark" aria-hidden="true">${character.name[0]}</span><span class="silhouette" aria-hidden="true"><span class="silhouette-head"></span><span class="silhouette-body"></span></span>`;
+    const image = character.portrait
+      ? `<img class="character-portrait-image" src="${character.portrait}" alt="" loading="lazy" decoding="async" onerror="this.remove()">`
+      : "";
+    return `${image}<span class="portrait-fallback" aria-hidden="true"><span class="portrait-mark">${character.name[0]}</span><span class="silhouette"><span class="silhouette-head"></span><span class="silhouette-body"></span></span></span>`;
   }
 
   function cardMarkup(character, index = 0) {
-    const stats = [["武力", character.martial], ["智力", character.intelligence], ["统率", character.command], ["意志", character.willpower]];
+    const stats = [["武力", character.martial], ["智力", character.intelligence]];
     return `
       <button class="warrior-card" type="button" data-name="${character.name}" data-tier="${character.tier}"
         data-faction="${character.faction}" style="--card-index:${Math.min(index, 20)}"
-        aria-label="查看${character.name}详情，武力排名第${character.rank}">
+        aria-label="查看${character.name}详情，综合排名第${character.rank}">
         <span class="card-portrait">${portraitMarkup(character)}<span class="portrait-topline"><span class="faction-badge">${character.faction}</span><span class="tier-badge">${character.tier}${character.subTier}</span></span><span class="card-rank"><small>RANK</small><strong>${String(character.rank).padStart(3, "0")}</strong></span></span>
-        <span class="card-main"><span class="card-title-row"><span class="card-name">${character.name}</span><span class="card-power"><span>战力</span><strong>${character.power}</strong></span></span><span class="card-stats">${stats.map(([label, value]) => `<span class="card-stat"><span>${label}</span><strong>${value}</strong></span>`).join("")}</span></span>
+        <span class="card-main"><span class="card-title-row"><span class="card-name">${character.name}</span><span class="card-power"><span>综合战力</span><strong>${calculateCombatPower(character)}</strong></span></span><span class="card-stats">${stats.map(([label, value]) => `<span class="card-stat"><span>${label}</span><strong>${value}</strong></span>`).join("")}</span></span>
         <span class="card-trait">${character.trait}</span>
       </button>`;
   }
@@ -735,7 +774,11 @@
 
   function getVisibleCharacters() {
     const filtered = state.faction === "全部" ? [...characters] : characters.filter((character) => character.faction === state.faction);
-    return filtered.sort((a, b) => state.sort === "rank" ? a.rank - b.rank : b[state.sort] - a[state.sort] || a.rank - b.rank);
+    return filtered.sort((a, b) => {
+      if (state.sort === "rank") return a.rank - b.rank;
+      if (state.sort === "power") return calculateCombatPower(b) - calculateCombatPower(a) || a.rank - b.rank;
+      return b[state.sort] - a[state.sort] || a.rank - b.rank;
+    });
   }
 
   function renderGallery() {
@@ -805,9 +848,9 @@
       <button class="match-card ${completed ? "is-completed" : ""}" type="button"
         ${completed ? `data-match-id="${match.id}"` : "disabled"}>
         <span class="match-number">${match.id.split("-").slice(-1)[0]}号赛</span>
-        <span class="match-team ${match.winnerTeamId === teamA.id ? "is-winner" : ""}"><b>${teamA.name}</b><small>最终幸存武力 ${powerA}</small></span>
+        <span class="match-team ${match.winnerTeamId === teamA.id ? "is-winner" : ""}"><b>${teamA.name}</b><small>最终剩余战力 ${powerA}</small></span>
         <i>VS</i>
-        <span class="match-team ${match.winnerTeamId === teamB.id ? "is-winner" : ""}"><b>${teamB.name}</b><small>最终幸存武力 ${powerB}</small></span>
+        <span class="match-team ${match.winnerTeamId === teamB.id ? "is-winner" : ""}"><b>${teamB.name}</b><small>最终剩余战力 ${powerB}</small></span>
         <strong>${completed ? `${getTeamById(draw, match.winnerTeamId).name}胜 · 查看战报` : "等待比赛"}</strong>
       </button>`;
   }
@@ -817,11 +860,11 @@
     const groupFinished = getGroupMatches(tournament, group.id).every((match) => match.status === "completed");
     return `
       <div class="standings-table" role="table" aria-label="${group.name}积分榜">
-        <div class="standings-row standings-head" role="row"><span>排名</span><span>球队</span><span>赛</span><span>胜</span><span>负</span><span>积分</span><span>净剩余武力</span></div>
+        <div class="standings-row standings-head" role="row"><span>排名</span><span>球队</span><span>赛</span><span>胜</span><span>负</span><span>积分</span><span>同分对战</span><span>净胜战力</span></div>
         ${rows.map((row, index) => `
           <button class="standings-row" type="button" data-team-id="${row.teamId}" role="row">
             <span>${index + 1}${groupFinished && index < 2 ? " ✅" : ""}</span><strong>${row.teamName}</strong>
-            <span>${row.played}</span><span>${row.won}</span><span>${row.lost}</span><b>${row.points}</b><span>${row.netSurvivorPower}</span>
+            <span>${row.played}</span><span>${row.won}</span><span>${row.lost}</span><b>${row.points}</b><span>${row.headToHeadPoints}</span><span>${row.netSurvivorPower}</span>
           </button>`).join("")}
       </div>`;
   }
@@ -930,7 +973,7 @@
     } else if (page === "not-selected") {
       cupContent.innerHTML = `${sectionHeading("本届暂别赛场", "22名未抽中武将", "他们仍保留在完整卡池中，重新抽签时仍有机会参赛。")}<div class="card-grid cup-card-grid">${draw.notSelected.map(cardMarkup).join("")}</div>`;
     } else if (page === "teams") {
-      cupContent.innerHTML = `${sectionHeading("随机组队结果", "32支四人球队", "每队严格四名武将；没有球队总武力或球队总战力。")}<div class="teams-list">${draw.teams.map(teamMarkup).join("")}</div>`;
+    cupContent.innerHTML = `${sectionHeading("随机组队结果", "32支四人球队", "每队严格四名武将；不以赛前球队属性总和直接判定胜负。")}<div class="teams-list">${draw.teams.map(teamMarkup).join("")}</div>`;
     } else if (page === "groups") {
       cupContent.innerHTML = `${sectionHeading("随机分组结果", "A—H八个小组", "32支球队随机分配，每个小组严格四队。点击球队可查看四名成员。")}<div class="groups-grid">${draw.groups.map(groupMarkup).join("")}</div>`;
     } else if (page === "group-stage") {
@@ -1018,10 +1061,10 @@
   function openCharacterDialog(name) {
     const character = getCharacterByName(name);
     if (!character) return;
-    const stats = [["武力", character.martial], ["智力", character.intelligence], ["统率", character.command], ["意志", character.willpower]];
+    const stats = [["武力", character.martial], ["智力", character.intelligence]];
     dialog.classList.remove("team-dialog", "battle-dialog");
     dialog.setAttribute("aria-labelledby", "dialog-name");
-    dialogContent.innerHTML = `<div class="dialog-layout" style="--dialog-faction:${getFactionColor(character.faction)}"><div class="dialog-portrait">${portraitMarkup(character)}<span class="dialog-rank">RANK ${String(character.rank).padStart(3, "0")}</span></div><div class="dialog-info"><p class="dialog-meta">${character.faction} · ${character.tier}${character.subTier}级武将</p><h3 id="dialog-name">${character.name}</h3><div class="dialog-power-row"><span>战力（等于武力）</span><strong>${character.power}</strong></div><div class="dialog-stats">${stats.map(([label, value]) => `<div class="dialog-stat"><span>${label}</span><span class="stat-track"><i style="width:${value}%"></i></span><strong>${value}</strong></div>`).join("")}</div><div class="dialog-trait"><small>武将特性</small><strong>${character.trait}</strong></div></div></div>`;
+    dialogContent.innerHTML = `<div class="dialog-layout" style="--dialog-faction:${getFactionColor(character.faction)}"><div class="dialog-portrait">${portraitMarkup(character)}<span class="dialog-rank">RANK ${String(character.rank).padStart(3, "0")}</span></div><div class="dialog-info"><p class="dialog-meta">${character.faction} · ${character.tier}${character.subTier}级武将</p><h3 id="dialog-name">${character.name}</h3><div class="dialog-power-row"><span>综合战力</span><strong>${calculateCombatPower(character)}</strong></div><div class="dialog-stats">${stats.map(([label, value]) => `<div class="dialog-stat"><span>${label}</span><span class="stat-track"><i style="width:${value}%"></i></span><strong>${value}</strong></div>`).join("")}</div><div class="dialog-trait"><small>武将特性</small><strong>${character.trait}</strong></div></div></div>`;
     openDialog();
   }
 
@@ -1047,12 +1090,13 @@
   }
 
   function duelRecordMarkup(duel) {
-    return `<div class="battle-duel"><span>第${duel.duelNumber}场</span><b>${duel.fighterA.name} ${duel.fighterA.martial}</b><i>VS</i><b>${duel.fighterB.name} ${duel.fighterB.martial}</b><strong>${duel.winner.name}胜</strong></div>`;
+    const result = duel.mutualDestruction ? "战力相同 · 同归于尽" : `${duel.winner.name}胜`;
+    return `<div class="battle-duel"><span>第${duel.duelNumber}场</span><b>${duel.fighterA.name} ${duel.fighterA.power}</b><i>VS</i><b>${duel.fighterB.name} ${duel.fighterB.power}</b><strong>${result}</strong></div>`;
   }
 
   function survivorNames(summary) {
     return summary.members.length
-      ? summary.members.map((fighter) => `${fighter.name} ${fighter.martial}`).join("、")
+      ? summary.members.map((fighter) => `${fighter.name} ${fighter.power}`).join("、")
       : "无";
   }
 
@@ -1069,7 +1113,7 @@
          <p>轮空：A队 ${survivorNames({ members: record.phaseTwo.byes.A })}；B队 ${survivorNames({ members: record.phaseTwo.byes.B })}</p>`;
     const phaseThree = record.phaseThree.skipped
       ? `<p class="battle-skipped">第三阶段跳过：${record.phaseThree.reason}</p>`
-      : `<div class="battle-final-power"><span>${teamA.name}<b>${record.phaseThree.finalPower.A}</b></span><i>最终幸存总武力</i><span>${teamB.name}<b>${record.phaseThree.finalPower.B}</b></span></div>`;
+      : `<div class="battle-final-power"><span>${teamA.name}<b>${record.phaseThree.finalPower.A}</b></span><i>最终剩余总战力</i><span>${teamB.name}<b>${record.phaseThree.finalPower.B}</b></span></div>`;
 
     dialog.classList.remove("team-dialog");
     dialog.classList.add("battle-dialog");
@@ -1170,6 +1214,7 @@
   }
 
   window.sanguoApp = Object.freeze({
+    calculateCombatPower,
     validateCharacterData,
     getVisibleCharacters,
     getState: () => ({ ...state }),

@@ -3,6 +3,7 @@
 (() => {
   const app = window.sanguoApp;
   const characters = window.CHARACTERS;
+  const calculateCombatPower = window.calculateCombatPower;
   const content = document.querySelector("#cup-content");
   const mode = {
     playerTeamId: null,
@@ -94,7 +95,15 @@
   }
 
   function fighterSnapshot(character, team, side) {
-    return { teamId: team.id, teamName: team.name, side, name: character.name, martial: character.martial };
+    return {
+      teamId: team.id,
+      teamName: team.name,
+      side,
+      name: character.name,
+      martial: character.martial,
+      intelligence: character.intelligence,
+      power: calculateCombatPower(character)
+    };
   }
 
   function survivorSummary(team, side, names) {
@@ -147,15 +156,19 @@
     const characterB = getCharacter(nameB);
     const fighterA = fighterSnapshot(characterA, battle.teamA, "A");
     const fighterB = fighterSnapshot(characterB, battle.teamB, "B");
-    const aWins = characterA.martial > characterB.martial;
+    const powerA = calculateCombatPower(characterA);
+    const powerB = calculateCombatPower(characterB);
+    const tied = powerA === powerB;
+    const aWins = powerA > powerB;
     const duel = {
       duelNumber,
       fighterA,
       fighterB,
-      winner: aWins ? fighterA : fighterB,
-      eliminated: aWins ? fighterB : fighterA
+      winner: tied ? null : (aWins ? fighterA : fighterB),
+      eliminated: tied ? [fighterA, fighterB] : [aWins ? fighterB : fighterA],
+      mutualDestruction: tied
     };
-    battle.eliminated.add(duel.eliminated.name);
+    duel.eliminated.forEach((fighter) => battle.eliminated.add(fighter.name));
     return duel;
   }
 
@@ -182,7 +195,9 @@
 
   function chooseAICharacter(availableNames, situation, random = mode.random) {
     if (!Array.isArray(availableNames) || !availableNames.length) throw new RangeError("AI没有可出战武将");
-    const ordered = [...availableNames].sort((left, right) => getCharacter(right).martial - getCharacter(left).martial);
+    const ordered = [...availableNames].sort((left, right) => (
+      calculateCombatPower(getCharacter(right)) - calculateCombatPower(getCharacter(left))
+    ));
     const knockout = situation.matchStage !== "GROUP_STAGE";
     const behind = situation.aiSurvivorCount < situation.opponentSurvivorCount;
     const lateCombat = situation.combatPhase === "PHASE_TWO" || situation.duelIndex >= 3;
@@ -235,8 +250,8 @@
 
   function finishPhaseOne() {
     const battle = mode.battle;
-    battle.phaseOne.survivorsA = battle.phaseOne.duels.filter((duel) => duel.winner.side === "A").map((duel) => duel.winner.name);
-    battle.phaseOne.survivorsB = battle.phaseOne.duels.filter((duel) => duel.winner.side === "B").map((duel) => duel.winner.name);
+    battle.phaseOne.survivorsA = battle.phaseOne.duels.filter((duel) => duel.winner?.side === "A").map((duel) => duel.winner.name);
+    battle.phaseOne.survivorsB = battle.phaseOne.duels.filter((duel) => duel.winner?.side === "B").map((duel) => duel.winner.name);
     if (!battle.phaseOne.survivorsA.length || !battle.phaseOne.survivorsB.length) {
       prepareBattleResult("phase-one", battle.phaseOne.survivorsA, battle.phaseOne.survivorsB);
       return;
@@ -267,11 +282,11 @@
     phase.byesB = [...phase.availableB];
     phase.survivorsA = [
       ...phase.byesA,
-      ...phase.duels.filter((duel) => duel.winner.side === "A").map((duel) => duel.winner.name)
+      ...phase.duels.filter((duel) => duel.winner?.side === "A").map((duel) => duel.winner.name)
     ];
     phase.survivorsB = [
       ...phase.byesB,
-      ...phase.duels.filter((duel) => duel.winner.side === "B").map((duel) => duel.winner.name)
+      ...phase.duels.filter((duel) => duel.winner?.side === "B").map((duel) => duel.winner.name)
     ];
     prepareBattleResult("phase-two", phase.survivorsA, phase.survivorsB);
   }
@@ -291,14 +306,15 @@
   }
 
   function decideWinner(teamA, teamB, survivorsA, survivorsB) {
-    const totalA = survivorsA.reduce((sum, name) => sum + getCharacter(name).martial, 0);
-    const totalB = survivorsB.reduce((sum, name) => sum + getCharacter(name).martial, 0);
-    const highA = survivorsA.length ? Math.max(...survivorsA.map((name) => getCharacter(name).martial)) : 0;
-    const highB = survivorsB.length ? Math.max(...survivorsB.map((name) => getCharacter(name).martial)) : 0;
+    const totalA = survivorsA.reduce((sum, name) => sum + calculateCombatPower(getCharacter(name)), 0);
+    const totalB = survivorsB.reduce((sum, name) => sum + calculateCombatPower(getCharacter(name)), 0);
+    const highA = survivorsA.length ? Math.max(...survivorsA.map((name) => calculateCombatPower(getCharacter(name)))) : 0;
+    const highB = survivorsB.length ? Math.max(...survivorsB.map((name) => calculateCombatPower(getCharacter(name)))) : 0;
+    if (!survivorsA.length && !survivorsB.length) return { winningTeam: mode.random() < 0.5 ? teamA : teamB, decision: "mutual-annihilation-random", totalA, totalB, highA, highB };
     if (!survivorsA.length) return { winningTeam: teamB, decision: "opponent-eliminated", totalA, totalB, highA, highB };
     if (!survivorsB.length) return { winningTeam: teamA, decision: "opponent-eliminated", totalA, totalB, highA, highB };
     if (totalA !== totalB) return { winningTeam: totalA > totalB ? teamA : teamB, decision: "final-power", totalA, totalB, highA, highB };
-    if (highA !== highB) return { winningTeam: highA > highB ? teamA : teamB, decision: "highest-survivor-martial", totalA, totalB, highA, highB };
+    if (highA !== highB) return { winningTeam: highA > highB ? teamA : teamB, decision: "highest-survivor-combat-power", totalA, totalB, highA, highB };
     return { winningTeam: mode.random() < 0.5 ? teamA : teamB, decision: "random-50-percent", totalA, totalB, highA, highB };
   }
 
@@ -339,7 +355,7 @@
             B: survivorSummary(battle.teamB, "B", survivorsB)
           },
           finalPower: { A: outcome.totalA, B: outcome.totalB },
-          highestMartial: { A: outcome.highA, B: outcome.highB },
+          highestPower: { A: outcome.highA, B: outcome.highB },
           decision: outcome.decision
         }
       : { skipped: true, reason: `${endedAfter === "phase-one" ? "第一" : "第二"}阶段后一方已全灭` };
@@ -458,7 +474,7 @@
   function miniCard(name, status, selectable, selected = false) {
     const character = getCharacter(name);
     return `<button type="button" class="player-fighter ${status.className} ${selected ? "is-selected" : ""}" ${selectable ? `data-player-fighter="${name}"` : "disabled"}>
-      <span>${character.faction} · ${character.tier}${character.subTier}</span><strong>${name}</strong><b>武力 ${character.martial}</b><i>${status.label}</i></button>`;
+      <span>${character.faction} · ${character.tier}${character.subTier}</span><strong>${name}</strong><b>战力 ${calculateCombatPower(character)}</b><i>${status.label}</i></button>`;
   }
 
   function opponentCardMarkup(name, status, battle, index) {
@@ -484,7 +500,11 @@
   function duelArenaMarkup(battle) {
     if (!battle.lastDuel) return `<div class="battle-waiting"><span>将</span><p>请选择一名武将出战</p><small>电脑会在确认后随机派出对手</small></div>`;
     const duel = battle.lastDuel;
-    const card = (fighter, side) => `<div class="arena-fighter ${side} ${duel.winner.name === fighter.name ? "is-winner" : "is-loser"}"><small>${fighter.teamName}</small><strong>${fighter.name}</strong><b>${fighter.martial}</b><i>${duel.winner.name === fighter.name ? "胜" : "阵亡"}</i></div>`;
+    const card = (fighter, side) => {
+      const won = duel.winner?.name === fighter.name;
+      const result = duel.mutualDestruction ? "同归于尽" : won ? "胜" : "阵亡";
+      return `<div class="arena-fighter ${side} ${won ? "is-winner" : "is-loser"}"><small>${fighter.teamName}</small><strong>${fighter.name}</strong><b>${fighter.power}</b><i>${result}</i></div>`;
+    };
     return `<div class="duel-arena">${card(duel.fighterA,"from-left")}<span class="arena-vs">VS</span>${card(duel.fighterB,"from-right")}</div>`;
   }
 
@@ -496,14 +516,14 @@
     const opponentSide = playerSide === "A" ? "B" : "A";
     if (["PHASE_THREE", "MATCH_RESULT"].includes(battle.phase)) {
       const record = battle.pendingRecord;
-      const totalA = battle.finalSurvivorsA.reduce((sum,name)=>sum+getCharacter(name).martial,0);
-      const totalB = battle.finalSurvivorsB.reduce((sum,name)=>sum+getCharacter(name).martial,0);
+      const totalA = battle.finalSurvivorsA.reduce((sum,name)=>sum+calculateCombatPower(getCharacter(name)),0);
+      const totalB = battle.finalSurvivorsB.reduce((sum,name)=>sum+calculateCombatPower(getCharacter(name)),0);
       const playerWon = record.winner.teamId === mode.playerTeamId;
       const byeA = battle.phaseTwo?.byesA || [];
       const byeB = battle.phaseTwo?.byesB || [];
       content.innerHTML = `<div class="player-battle-view"><div class="battle-stage-line">${stageLabelForMatch(battle.match)} · ${battle.phase === "PHASE_THREE" ? "第三阶段" : "全灭判定"}</div>
         <h2>${playerWon ? "你的球队获胜！" : "你的球队落败！"}</h2>
-        <div class="final-survivors"><section><h3>${battle.teamA.name}</h3><p>${battle.finalSurvivorsA.join("、") || "无幸存者"}</p><strong>${totalA}</strong><small>最终总武力</small></section><i>VS</i><section><h3>${battle.teamB.name}</h3><p>${battle.finalSurvivorsB.join("、") || "无幸存者"}</p><strong>${totalB}</strong><small>最终总武力</small></section></div>
+        <div class="final-survivors"><section><h3>${battle.teamA.name}</h3><p>${battle.finalSurvivorsA.join("、") || "无幸存者"}</p><strong>${totalA}</strong><small>最终总战力</small></section><i>VS</i><section><h3>${battle.teamB.name}</h3><p>${battle.finalSurvivorsB.join("、") || "无幸存者"}</p><strong>${totalB}</strong><small>最终总战力</small></section></div>
         ${byeA.length || byeB.length ? `<p class="battle-bye-summary">第二阶段轮空：A队 ${byeA.join("、") || "无"}；B队 ${byeB.join("、") || "无"}</p>` : ""}
         <button class="battle-next-button" type="button" data-player-action="confirm-result">查看赛后总结</button></div>`;
       return;

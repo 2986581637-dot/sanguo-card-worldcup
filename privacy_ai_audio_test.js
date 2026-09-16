@@ -18,8 +18,9 @@ for(let run=0;run<3000;run+=1){
   counts[choice.name]+=1;
 }
 assert(Object.values(counts).filter(count=>count>0).length>=3,"AI相同局面没有多种选择");
-assert(counts[aiPool[0]]<3000,"AI永远选择最高武力");
+assert(counts[aiPool[0]]<3000,"AI永远选择最高综合战力");
 assert(counts[aiPool[0]]>counts[aiPool[3]],"AI劣势关键阶段没有体现强攻权重");
+assert(player.chooseAICharacter.toString().includes("calculateCombatPower"),"AI强弱排序没有调用统一综合战力函数");
 assert(!player.chooseAICharacter.toString().includes("playerSelected"),"AI函数读取了玩家隐藏选择");
 
 async function testAudio(playSucceeds){

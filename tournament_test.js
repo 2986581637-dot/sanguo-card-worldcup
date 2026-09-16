@@ -22,6 +22,8 @@ for (const file of ["characters.js", "game.js"]) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), context, { filename:file });
 }
 const app = context.window.sanguoApp;
+let mutualDestructionDuels = 0;
+let multiTeamPointTies = 0;
 
 function assert(value, message) { if (!value) throw new Error(message); }
 function seededRandom(seed) {
@@ -42,9 +44,14 @@ function validateBattle(record) {
   assert(new Set(phaseOneA).size === 4 && new Set(phaseOneB).size === 4, "第一阶段有人重复出战");
   record.phaseOne.duels.forEach((duel) => {
     assert(duel.fighterA.side === "A" && duel.fighterB.side === "B", "第一阶段出现同队战斗");
-    assert(duel.winner.martial > duel.eliminated.martial, "第一阶段未按武力决定胜负");
+    if (duel.mutualDestruction) {
+      mutualDestructionDuels += 1;
+      assert(duel.winner === null && duel.fighterA.power === duel.fighterB.power && duel.eliminated.length === 2, "第一阶段同战力未同归于尽");
+    } else {
+      assert(duel.winner.power > duel.eliminated[0].power, "第一阶段未按综合战力决定胜负");
+    }
   });
-  assert(record.phaseOne.survivors.A.count + record.phaseOne.survivors.B.count === 4, "第一阶段幸存者不是4人");
+  assert(record.phaseOne.survivors.A.count + record.phaseOne.survivors.B.count <= 4, "第一阶段幸存者数量错误");
 
   if (!record.phaseTwo.skipped) {
     const expectedDuels = Math.min(record.phaseOne.survivors.A.count, record.phaseOne.survivors.B.count);
@@ -53,14 +60,19 @@ function validateBattle(record) {
     assert(new Set(record.phaseTwo.participants.B.map((fighter) => fighter.name)).size === expectedDuels, "B队第二阶段重复出战");
     record.phaseTwo.duels.forEach((duel) => {
       assert(duel.fighterA.side === "A" && duel.fighterB.side === "B", "第二阶段出现同队战斗");
-      assert(duel.winner.martial > duel.eliminated.martial, "第二阶段未按武力决定胜负");
+      if (duel.mutualDestruction) {
+        mutualDestructionDuels += 1;
+        assert(duel.winner === null && duel.fighterA.power === duel.fighterB.power && duel.eliminated.length === 2, "第二阶段同战力未同归于尽");
+      } else {
+        assert(duel.winner.power > duel.eliminated[0].power, "第二阶段未按综合战力决定胜负");
+      }
     });
   }
 
   if (!record.phaseThree.skipped) {
-    const totalA = record.phaseThree.survivors.A.members.reduce((sum, fighter) => sum + fighter.martial, 0);
-    const totalB = record.phaseThree.survivors.B.members.reduce((sum, fighter) => sum + fighter.martial, 0);
-    assert(record.phaseThree.finalPower.A === totalA && record.phaseThree.finalPower.B === totalB, "第三阶段总武力计算错误");
+    const totalA = record.phaseThree.survivors.A.members.reduce((sum, fighter) => sum + fighter.power, 0);
+    const totalB = record.phaseThree.survivors.B.members.reduce((sum, fighter) => sum + fighter.power, 0);
+    assert(record.phaseThree.finalPower.A === totalA && record.phaseThree.finalPower.B === totalB, "第三阶段总战力计算错误");
   }
   assert(record.winner && record.winner.teamId, "比赛没有唯一胜者");
 }
@@ -96,6 +108,20 @@ for (let edition = 1; edition <= 5; edition += 1) {
     const rows = app.getGroupStandings(group, tournament);
     assert(rows.length === 4 && rows.every((row) => row.played === 3), `${group.name}积分榜错误`);
     assert(rows.every((row) => row.won + row.lost === 3 && row.points === row.won * 3), `${group.name}积分计算错误`);
+    const pointCounts = new Map();
+    rows.forEach((row) => pointCounts.set(row.points, (pointCounts.get(row.points) || 0) + 1));
+    if ([...pointCounts.values()].some((count) => count >= 3)) multiTeamPointTies += 1;
+    rows.slice(1).forEach((row, index) => {
+      const previous = rows[index];
+      assert(previous.points >= row.points, `${group.name}没有优先按积分排序`);
+      if (previous.points === row.points) {
+        if (previous.headToHeadPoints !== row.headToHeadPoints) {
+          assert(previous.headToHeadPoints > row.headToHeadPoints, `${group.name}没有优先按同分球队内部战绩排序`);
+        } else if (previous.netSurvivorPower !== row.netSurvivorPower) {
+          assert(previous.netSurvivorPower > row.netSurvivorPower, `${group.name}没有按净胜战力排序`);
+        }
+      }
+    });
   });
   const qualifierIds = tournament.groupStage.qualifiers.map((item) => item.teamId);
   assert(qualifierIds.length === 16 && new Set(qualifierIds).size === 16, `第${edition}届晋级球队错误`);
@@ -134,4 +160,6 @@ for (let edition = 1; edition <= 5; edition += 1) {
   });
 }
 
-console.log(JSON.stringify({ editionsTested:5, reports, allPassed:true }, null, 2));
+assert(mutualDestructionDuels > 0, "五届赛事中没有触发同战力同归于尽");
+assert(multiTeamPointTies > 0, "五届赛事中没有覆盖三队以上同分场景");
+console.log(JSON.stringify({ editionsTested:5, mutualDestructionDuels, multiTeamPointTies, reports, allPassed:true }, null, 2));

@@ -294,9 +294,45 @@ h1 em {
 .warrior-card:hover,
 .warrior-card:focus-visible { transform: translateY(-7px); box-shadow: 0 24px 48px rgba(0,0,0,.44), 0 0 0 1px var(--tier-accent); outline: none; }
 
-.warrior-card[data-tier="天"] { --tier-accent: #d3ad51; background: linear-gradient(145deg, #f4e8c8, #d1ba80 58%, #a98543); }
-.warrior-card[data-tier="地"] { --tier-accent: #9d8f71; background: linear-gradient(145deg, #e3dac8, #b9ab8e 58%, #887b65); }
-.warrior-card[data-tier="人"] { --tier-accent: #9f765b; background: linear-gradient(145deg, #dfd2bd, #b7a18a 58%, #8c705d); }
+.warrior-card[data-tier="天"] {
+  --tier-accent: #f0c85f;
+  border-color: #e7c25f;
+  background: linear-gradient(145deg, #fff3c9, #d8b75b 58%, #8e6423);
+  box-shadow: 0 18px 42px rgba(0,0,0,.4), 0 0 24px rgba(239,193,72,.34), inset 0 0 0 2px rgba(255,249,210,.55);
+}
+.warrior-card[data-tier="天"]::after {
+  opacity: .48;
+  background: linear-gradient(115deg, transparent 20%, rgba(255,255,224,.62) 36%, transparent 51%), radial-gradient(circle at 50% 12%, rgba(255,215,92,.45), transparent 35%);
+  background-size: 240% 100%, 100% 100%;
+  animation: heaven-card-shine 4.5s ease-in-out infinite;
+}
+.warrior-card[data-tier="地"] {
+  --tier-accent: #c6b48e;
+  border-color: #b9a57e;
+  background: linear-gradient(145deg, #eee7d8, #c5b99f 58%, #82755e);
+  box-shadow: 0 17px 37px rgba(0,0,0,.36), 0 0 13px rgba(200,181,137,.18), inset 0 0 0 2px rgba(255,255,255,.34);
+}
+.warrior-card[data-tier="地"]::after {
+  opacity: .32;
+  background: linear-gradient(120deg, transparent 27%, rgba(255,255,255,.38) 42%, transparent 57%), repeating-linear-gradient(105deg, transparent 0 5px, rgba(69,58,39,.08) 6px);
+  background-size: 260% 100%, auto;
+  animation: earth-card-shine 7s ease-in-out infinite;
+}
+.warrior-card[data-tier="人"] {
+  --tier-accent: #ae7e5d;
+  background: linear-gradient(145deg, #e1d5c2, #b89f88 58%, #80634f);
+  box-shadow: 0 16px 34px rgba(0,0,0,.33), inset 0 0 0 2px rgba(255,255,255,.22);
+}
+.warrior-card[data-tier="人"]::after { opacity: .22; background: repeating-linear-gradient(105deg, transparent 0 5px, rgba(72,47,28,.1) 6px); }
+.warrior-card[data-tier="凡"] {
+  --tier-accent: #887b67;
+  border-color: #746957;
+  background: linear-gradient(145deg, #d2c8b7, #aa9e89 58%, #706657);
+  box-shadow: 0 13px 27px rgba(0,0,0,.3), inset 0 0 0 1px rgba(255,255,255,.16);
+}
+.warrior-card[data-tier="凡"]::after { opacity: .13; }
+@keyframes heaven-card-shine { 0%,55%,100% { background-position: 115% 0, 0 0; } 76% { background-position: -90% 0, 0 0; } }
+@keyframes earth-card-shine { 0%,65%,100% { background-position: 110% 0, 0 0; } 82% { background-position: -80% 0, 0 0; } }
 .warrior-card[data-faction="魏"] { --faction-color: #334f67; }
 .warrior-card[data-faction="蜀"] { --faction-color: #875038; }
 .warrior-card[data-faction="吴"] { --faction-color: #315b51; }
@@ -324,6 +360,19 @@ h1 em {
     linear-gradient(-28deg, transparent 49.4%, rgba(222,195,134,.16) 50%, transparent 50.7%);
   background-size: 24px 42px;
 }
+
+.character-portrait-image {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 8%;
+}
+
+.portrait-fallback { position: absolute; inset: 0; }
+.dialog-portrait .character-portrait-image { object-position: center top; }
 
 .portrait-mark {
   position: absolute;
@@ -436,7 +485,7 @@ h1 em {
 
 .card-stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 5px;
   margin-top: 9px;
 }
@@ -627,8 +676,8 @@ h1 em {
 .group-stage-layout > section { padding: 20px; border: 1px solid rgba(199,164,90,.2); background: rgba(255,255,255,.015); }
 .group-stage-layout h3 { margin: 0 0 17px; color: #dec797; font-family: "STKaiti", "KaiTi", serif; font-size: 23px; }
 
-.standings-table { min-width: 470px; }
-.standings-row { width: 100%; display: grid; grid-template-columns: 48px minmax(82px, 1fr) 34px 34px 34px 44px 88px; align-items: center; gap: 4px; padding: 12px 7px; color: #b9ad98; border: 0; border-bottom: 1px solid rgba(224,201,145,.1); background: transparent; font-size: 11px; text-align: center; }
+.standings-table { min-width: 570px; }
+.standings-row { width: 100%; display: grid; grid-template-columns: 48px minmax(82px, 1fr) 34px 34px 34px 44px 72px 78px; align-items: center; gap: 4px; padding: 12px 7px; color: #b9ad98; border: 0; border-bottom: 1px solid rgba(224,201,145,.1); background: transparent; font-size: 11px; text-align: center; }
 button.standings-row { cursor: pointer; }
 button.standings-row:hover { background: rgba(199,164,90,.06); }
 .standings-row strong { color: #e0cfad; text-align: left; }

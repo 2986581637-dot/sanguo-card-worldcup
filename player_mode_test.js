@@ -32,9 +32,9 @@ function playCurrentPlayerMatch(){
       }
       if(!battle.pendingRecord.phaseThree.skipped){
         phaseThreeMatches+=1;
-        const a=battle.pendingRecord.phaseThree.survivors.A.members.reduce((s,f)=>s+f.martial,0);
-        const b=battle.pendingRecord.phaseThree.survivors.B.members.reduce((s,f)=>s+f.martial,0);
-        assert(a===battle.pendingRecord.phaseThree.finalPower.A&&b===battle.pendingRecord.phaseThree.finalPower.B,"第三阶段总武力错误");
+        const a=battle.pendingRecord.phaseThree.survivors.A.members.reduce((s,f)=>s+f.power,0);
+        const b=battle.pendingRecord.phaseThree.survivors.B.members.reduce((s,f)=>s+f.power,0);
+        assert(a===battle.pendingRecord.phaseThree.finalPower.A&&b===battle.pendingRecord.phaseThree.finalPower.B,"第三阶段总战力错误");
       }
       player.confirmBattleResult();
       break;
@@ -52,7 +52,11 @@ function playCurrentPlayerMatch(){
     assert(!player.getState().battle.lastDuel,"玩家选择后AI提前完成出牌");
     player.confirmPlayerFighter();
     html=nodes.get("#cup-content").innerHTML;
-    assert(html.includes("duel-arena")&&html.includes("from-left")&&html.includes("from-right")&&html.includes("is-winner")&&html.includes("is-loser"),"对战动画状态缺失");
+    const lastDuel=player.getState().battle.lastDuel;
+    const resultClasses=lastDuel.mutualDestruction
+      ? (html.match(/is-loser/g)||[]).length>=2
+      : html.includes("is-winner")&&html.includes("is-loser");
+    assert(html.includes("duel-arena")&&html.includes("from-left")&&html.includes("from-right")&&resultClasses,"对战动画状态缺失");
     assert(html.includes(player.getState().battle.lastDuel[battle.playerSide==="A"?"fighterB":"fighterA"].name),"翻牌后没有揭晓电脑武将");
     animationChecks+=1;
     player.continueBattle();
