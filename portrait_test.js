@@ -6,25 +6,19 @@ const path = require("path");
 global.window = global;
 require("./characters.js");
 
-const expectedNames = new Set([
-  "吕布", "关羽", "张飞", "赵云", "马超", "典韦", "许褚", "曹操", "诸葛亮", "周瑜",
-  "司马懿", "郭嘉", "贾诩", "庞统", "荀彧"
-]);
+const expectedPortraitCount = 75;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
 const withPortrait = global.CHARACTERS.filter((character) => character.portrait);
-assert(withPortrait.length === expectedNames.size, `应接入${expectedNames.size}张立绘，实际${withPortrait.length}张`);
+assert(withPortrait.length === expectedPortraitCount, `应接入${expectedPortraitCount}张立绘，实际${withPortrait.length}张`);
 
 const files = [];
 for (const character of global.CHARACTERS) {
-  if (!expectedNames.has(character.name)) {
-    assert(character.portrait === "", `${character.name}不应在当前批次提前接入立绘`);
-    continue;
-  }
-  assert(/^assets\/portraits\/[a-z_]+\.webp$/.test(character.portrait), `${character.name}的立绘路径不符合相对snake_case WebP规则`);
+  if (!character.portrait) continue;
+  assert(/^assets\/portraits\/[a-z0-9_]+\.webp$/.test(character.portrait), `${character.name}的立绘路径不符合相对snake_case WebP规则`);
   const filePath = path.join(__dirname, ...character.portrait.split("/"));
   assert(fs.existsSync(filePath), `${character.name}的立绘文件不存在`);
   const size = fs.statSync(filePath).size;

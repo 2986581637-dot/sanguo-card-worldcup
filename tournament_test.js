@@ -22,10 +22,25 @@ for (const file of ["characters.js", "game.js"]) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), context, { filename:file });
 }
 const app = context.window.sanguoApp;
+const characters = context.window.CHARACTERS;
 let mutualDestructionDuels = 0;
 let multiTeamPointTies = 0;
 
 function assert(value, message) { if (!value) throw new Error(message); }
+const tiedCaptainCandidates = characters.filter((character) => character.power === 100).slice(0, 2);
+const tiedCaptain = app.selectTeamCaptain([tiedCaptainCandidates[1], tiedCaptainCandidates[0], characters[20], characters[30]]);
+assert(tiedCaptain.rank === Math.min(...tiedCaptainCandidates.map((character) => character.rank)), "同综合战力队长没有按固定rank决定");
+function validateAdjustedPowers(duel, phaseLabel) {
+  const characterA = characters.find((character) => character.name === duel.fighterA.name);
+  const characterB = characters.find((character) => character.name === duel.fighterB.name);
+  const normalA = app.calculateBattlePower(characterA, characterB);
+  const normalB = app.calculateBattlePower(characterB, characterA);
+  assert(duel.fighterA.normalBattlePower === normalA && duel.fighterB.normalBattlePower === normalB, `${phaseLabel}未保存统一正常战力`);
+  const boostA = duel.upset.upsetTriggered && duel.upset.underdogSide === "A" ? 1.15 : 1;
+  const boostB = duel.upset.upsetTriggered && duel.upset.underdogSide === "B" ? 1.15 : 1;
+  assert(duel.fighterA.battlePower === Number((normalA * boostA).toFixed(2)), `${phaseLabel}A方最终战力错误`);
+  assert(duel.fighterB.battlePower === Number((normalB * boostB).toFixed(2)), `${phaseLabel}B方最终战力错误`);
+}
 function seededRandom(seed) {
   let value = seed >>> 0;
   return () => {
@@ -37,6 +52,19 @@ function seededRandom(seed) {
   };
 }
 
+const aiRandom = seededRandom(20260918);
+const aiCandidates = characters.slice(0, 4);
+let reasonedChoices = 0;
+for (let index = 0; index < 10000; index += 1) {
+  const before = aiCandidates.map((character) => character.name).join("|");
+  const choice = app.selectAICombatant(aiCandidates, { combatPhase:"PHASE_ONE", duelIndex:1, scoreFor:0, scoreAgainst:0 }, aiRandom);
+  assert(aiCandidates.includes(choice.character), "AI选择了候选名单之外的武将");
+  assert(aiCandidates.map((character) => character.name).join("|") === before, "AI选择函数修改了传入名单");
+  reasonedChoices += Number(choice.reasoned);
+}
+const reasonedRate = reasonedChoices / 10000;
+assert(reasonedRate > 0.63 && reasonedRate < 0.67, `AI合理选择比例偏离65%：${reasonedRate}`);
+
 function validateBattle(record) {
   assert(record.phaseOne.duelCount === 4 && record.phaseOne.duels.length === 4, "第一阶段不是4场");
   const phaseOneA = record.phaseOne.duels.map((duel) => duel.fighterA.name);
@@ -44,11 +72,12 @@ function validateBattle(record) {
   assert(new Set(phaseOneA).size === 4 && new Set(phaseOneB).size === 4, "第一阶段有人重复出战");
   record.phaseOne.duels.forEach((duel) => {
     assert(duel.fighterA.side === "A" && duel.fighterB.side === "B", "第一阶段出现同队战斗");
+    validateAdjustedPowers(duel, "第一阶段");
     if (duel.mutualDestruction) {
       mutualDestructionDuels += 1;
-      assert(duel.winner === null && duel.fighterA.power === duel.fighterB.power && duel.eliminated.length === 2, "第一阶段同战力未同归于尽");
+      assert(duel.winner === null && duel.fighterA.battlePower === duel.fighterB.battlePower && duel.eliminated.length === 2, "第一阶段同实际战力未同归于尽");
     } else {
-      assert(duel.winner.power > duel.eliminated[0].power, "第一阶段未按综合战力决定胜负");
+      assert(duel.winner.battlePower > duel.eliminated[0].battlePower, "第一阶段未按属性修正后实际战力决定胜负");
     }
   });
   assert(record.phaseOne.survivors.A.count + record.phaseOne.survivors.B.count <= 4, "第一阶段幸存者数量错误");
@@ -60,11 +89,12 @@ function validateBattle(record) {
     assert(new Set(record.phaseTwo.participants.B.map((fighter) => fighter.name)).size === expectedDuels, "B队第二阶段重复出战");
     record.phaseTwo.duels.forEach((duel) => {
       assert(duel.fighterA.side === "A" && duel.fighterB.side === "B", "第二阶段出现同队战斗");
+      validateAdjustedPowers(duel, "第二阶段");
       if (duel.mutualDestruction) {
         mutualDestructionDuels += 1;
-        assert(duel.winner === null && duel.fighterA.power === duel.fighterB.power && duel.eliminated.length === 2, "第二阶段同战力未同归于尽");
+        assert(duel.winner === null && duel.fighterA.battlePower === duel.fighterB.battlePower && duel.eliminated.length === 2, "第二阶段同实际战力未同归于尽");
       } else {
-        assert(duel.winner.power > duel.eliminated[0].power, "第二阶段未按综合战力决定胜负");
+        assert(duel.winner.battlePower > duel.eliminated[0].battlePower, "第二阶段未按属性修正后实际战力决定胜负");
       }
     });
   }
@@ -88,6 +118,10 @@ for (let edition = 1; edition <= 5; edition += 1) {
   const random = seededRandom(20260915 + edition);
   const draw = app.createWorldCupDraw(random);
   assert(app.validateWorldCupDraw(draw).length === 0, `第${edition}届抽签无效`);
+  draw.teams.forEach((team) => {
+    const captain = app.selectTeamCaptain(team.members.map((name) => characters.find((character) => character.name === name)));
+    assert(team.captainName === captain.name && team.name === `${captain.name}队`, `${team.id}没有按最高综合战力命名`);
+  });
   const tournament = app.createTournament(draw, random);
 
   assert(tournament.groupStage.matches.length === 48, `第${edition}届小组赛不是48场`);
@@ -162,4 +196,4 @@ for (let edition = 1; edition <= 5; edition += 1) {
 
 assert(mutualDestructionDuels > 0, "五届赛事中没有触发同战力同归于尽");
 assert(multiTeamPointTies > 0, "五届赛事中没有覆盖三队以上同分场景");
-console.log(JSON.stringify({ editionsTested:5, mutualDestructionDuels, multiTeamPointTies, reports, allPassed:true }, null, 2));
+console.log(JSON.stringify({ editionsTested:5, aiReasonedRate:`${(reasonedRate*100).toFixed(2)}%`, mutualDestructionDuels, multiTeamPointTies, reports, allPassed:true }, null, 2));

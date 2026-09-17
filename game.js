@@ -3,7 +3,16 @@
 (() => {
   const characters = window.CHARACTERS;
   const calculateCombatPower = window.calculateCombatPower;
+  const getBattleType = window.getBattleType;
+  const getTypeMultiplier = window.getTypeMultiplier;
+  const calculateBattlePower = window.calculateBattlePower;
+  const resolveBattlePowerDuel = window.resolveBattlePowerDuel;
+  const getUpsetAnnouncement = window.getUpsetAnnouncement;
   if (typeof calculateCombatPower !== "function") throw new TypeError("缺少统一的综合战力计算函数");
+  if (typeof getBattleType !== "function") throw new TypeError("缺少统一的战斗属性计算函数");
+  if (typeof getTypeMultiplier !== "function" || typeof calculateBattlePower !== "function") throw new TypeError("缺少统一的属性克制战力函数");
+  if (typeof resolveBattlePowerDuel !== "function") throw new TypeError("缺少统一的爆冷结算函数");
+  if (typeof getUpsetAnnouncement !== "function") throw new TypeError("缺少统一的爆冷播报函数");
   const homeView = document.querySelector("#home-view");
   const galleryView = document.querySelector("#gallery-view");
   const cupView = document.querySelector("#cup-view");
@@ -43,10 +52,10 @@
 
   // 小组赛与全部淘汰赛统一使用的正式三阶段单场规则。
   const MATCH_RULES = Object.freeze({
-    version: 4,
+    version: 5,
     teamSize: 4,
     usePreMatchTeamPower: false,
-    allowedAttribute: "combatPower",
+    allowedAttribute: "type-adjusted-combat-power",
     resetRosterBeforeEveryMatch: true,
     phaseOne: Object.freeze({
       name: "四场跨队单挑",
@@ -54,9 +63,9 @@
       pairing: "shuffle-each-team-then-one-to-one",
       crossTeamOnly: true,
       appearancesPerCharacter: 1,
-      winnerRule: "higher-combat-power-survives",
-      loserRule: "lower-combat-power-eliminated; equal-power-both-eliminated",
-      randomModifier: false
+      winnerRule: "higher-type-adjusted-combat-power-survives",
+      loserRule: "lower-type-adjusted-combat-power-eliminated; equal-adjusted-power-both-eliminated",
+      randomModifier: "configured-underdog-upset-only"
     }),
     phaseTwo: Object.freeze({
       name: "幸存者再次跨队单挑",
@@ -66,9 +75,9 @@
       crossTeamOnly: true,
       appearancesPerCharacter: 1,
       extraSurvivors: "bye-and-advance",
-      winnerRule: "higher-combat-power-survives",
-      loserRule: "lower-combat-power-eliminated; equal-power-both-eliminated",
-      randomModifier: false
+      winnerRule: "higher-type-adjusted-combat-power-survives",
+      loserRule: "lower-type-adjusted-combat-power-eliminated; equal-adjusted-power-both-eliminated",
+      randomModifier: "configured-underdog-upset-only"
     }),
     phaseThree: Object.freeze({
       name: "最终幸存阵容总战力决胜",
@@ -110,7 +119,9 @@
     return { id: team.id, name: team.name || `${side}队`, side, roster };
   }
 
-  function fighterSnapshot(character, team) {
+  function fighterSnapshot(character, team, opponent = null, duelPower = null) {
+    const battleType = getBattleType(character);
+    const typeMultiplier = opponent ? getTypeMultiplier(battleType, getBattleType(opponent)) : 1;
     return Object.freeze({
       teamId: team.id,
       teamName: team.name,
@@ -118,33 +129,38 @@
       name: character.name,
       martial: character.martial,
       intelligence: character.intelligence,
-      power: calculateCombatPower(character)
+      power: calculateCombatPower(character),
+      battleType,
+      typeMultiplier,
+      normalBattlePower: opponent ? calculateBattlePower(character, opponent) : calculateCombatPower(character),
+      battlePower: duelPower ?? (opponent ? calculateBattlePower(character, opponent) : calculateCombatPower(character))
     });
   }
 
-  function resolveCombatDuel(characterA, characterB, teamA, teamB, duelNumber) {
-    const fighterA = fighterSnapshot(characterA, teamA);
-    const fighterB = fighterSnapshot(characterB, teamB);
-    const powerA = calculateCombatPower(characterA);
-    const powerB = calculateCombatPower(characterB);
-    if (powerA === powerB) {
+  function resolveCombatDuel(characterA, characterB, teamA, teamB, duelNumber, random) {
+    const outcome = resolveBattlePowerDuel(characterA, characterB, random);
+    const fighterA = fighterSnapshot(characterA, teamA, characterB, outcome.finalPowerA);
+    const fighterB = fighterSnapshot(characterB, teamB, characterA, outcome.finalPowerB);
+    if (outcome.winnerSide === null) {
       return Object.freeze({
         duelNumber,
         fighterA,
         fighterB,
         winner: null,
         eliminated: Object.freeze([fighterA, fighterB]),
-        mutualDestruction: true
+        mutualDestruction: true,
+        upset: outcome
       });
     }
-    const aWins = powerA > powerB;
+    const aWins = outcome.winnerSide === "A";
     return Object.freeze({
       duelNumber,
       fighterA,
       fighterB,
       winner: aWins ? fighterA : fighterB,
       eliminated: Object.freeze([aWins ? fighterB : fighterA]),
-      mutualDestruction: false
+      mutualDestruction: false,
+      upset: outcome
     });
   }
 
@@ -166,6 +182,56 @@
     return Object.freeze({ teamId: team.id, teamName: team.name, side: team.side, reason });
   }
 
+  const AI_SELECTION_CONFIG = Object.freeze({ reasonedChance: 0.65 });
+
+  function selectAICombatant(availableCharacters, situation = {}, random = Math.random) {
+    if (!Array.isArray(availableCharacters) || availableCharacters.length === 0) {
+      throw new RangeError("AI没有可出战武将");
+    }
+    if (typeof random !== "function") throw new TypeError("random必须是函数");
+    const available = availableCharacters.map((item) => {
+      const character = typeof item === "string" ? characters.find((candidate) => candidate.name === item) : item;
+      if (!character) throw new RangeError(`AI包含未知武将：${item}`);
+      return character;
+    });
+    if (available.length === 1) return Object.freeze({ character: available[0], name: available[0].name, strategy: "only-choice", reasoned: true });
+
+    const reasoned = random() < AI_SELECTION_CONFIG.reasonedChance;
+    if (!reasoned) {
+      const character = available[Math.floor(random() * available.length)];
+      return Object.freeze({ character, name: character.name, strategy: "random", reasoned: false });
+    }
+
+    const ordered = [...available].sort((left, right) => (
+      calculateCombatPower(right) - calculateCombatPower(left) || left.rank - right.rank
+    ));
+    const scoreFor = Number(situation.scoreFor) || 0;
+    const scoreAgainst = Number(situation.scoreAgainst) || 0;
+    const duelIndex = Number(situation.duelIndex) || 1;
+    const behind = scoreFor < scoreAgainst;
+    const lateRound = duelIndex >= 3 || situation.combatPhase === "PHASE_TWO";
+    let candidatePool;
+    let strategy;
+    if (behind || lateRound) {
+      candidatePool = ordered.slice(0, Math.min(2, ordered.length));
+      strategy = behind ? "press-advantage" : "close-out";
+    } else if (ordered.length >= 3) {
+      candidatePool = ordered.slice(1, Math.min(3, ordered.length));
+      strategy = "preserve-ace";
+    } else {
+      candidatePool = ordered;
+      strategy = "balanced";
+    }
+    const character = candidatePool[Math.floor(random() * candidatePool.length)];
+    return Object.freeze({ character, name: character.name, strategy, reasoned: true });
+  }
+
+  function removeSelected(available, selected) {
+    const index = available.indexOf(selected);
+    if (index < 0) throw new RangeError(`${selected.name}已不在可出战名单`);
+    available.splice(index, 1);
+  }
+
   function simulateTeamMatch(teamAInput, teamBInput, random = Math.random) {
     if (typeof random !== "function") throw new TypeError("random必须是函数");
     const teamA = prepareMatchTeam(teamAInput, "A");
@@ -175,11 +241,24 @@
     if (sharedMember) throw new RangeError(`两队不能共享同一武将：${sharedMember.name}`);
 
     // 每次调用都从两队完整四人名单开始，阵亡状态不会带入下一场比赛。
-    const phaseOneA = shuffle(teamA.roster, random);
-    const phaseOneB = shuffle(teamB.roster, random);
-    const phaseOneDuels = phaseOneA.map((characterA, index) => (
-      resolveCombatDuel(characterA, phaseOneB[index], teamA, teamB, index + 1)
-    ));
+    const phaseOneAvailableA = [...teamA.roster];
+    const phaseOneAvailableB = [...teamB.roster];
+    const phaseOneDuels = [];
+    let phaseOneScoreA = 0;
+    let phaseOneScoreB = 0;
+    for (let index = 0; index < MATCH_RULES.teamSize; index += 1) {
+      // 两队都只根据回合开始前的公开局势独立选择，任何一方都看不到对方本回合选择。
+      const situationA = { combatPhase:"PHASE_ONE", duelIndex:index + 1, scoreFor:phaseOneScoreA, scoreAgainst:phaseOneScoreB };
+      const situationB = { combatPhase:"PHASE_ONE", duelIndex:index + 1, scoreFor:phaseOneScoreB, scoreAgainst:phaseOneScoreA };
+      const choiceA = selectAICombatant(phaseOneAvailableA, situationA, random);
+      const choiceB = selectAICombatant(phaseOneAvailableB, situationB, random);
+      removeSelected(phaseOneAvailableA, choiceA.character);
+      removeSelected(phaseOneAvailableB, choiceB.character);
+      const duel = resolveCombatDuel(choiceA.character, choiceB.character, teamA, teamB, index + 1, random);
+      phaseOneDuels.push(duel);
+      phaseOneScoreA += Number(duel.winner?.side === "A");
+      phaseOneScoreB += Number(duel.winner?.side === "B");
+    }
     let survivorsA = phaseOneDuels
       .filter((duel) => duel.winner?.side === "A")
       .map((duel) => characters.find((character) => character.name === duel.winner.name));
@@ -212,16 +291,30 @@
       });
     }
 
-    const shuffledSurvivorsA = shuffle(survivorsA, random);
-    const shuffledSurvivorsB = shuffle(survivorsB, random);
-    const phaseTwoDuelCount = Math.min(shuffledSurvivorsA.length, shuffledSurvivorsB.length);
-    const participantsA = shuffledSurvivorsA.slice(0, phaseTwoDuelCount);
-    const participantsB = shuffledSurvivorsB.slice(0, phaseTwoDuelCount);
-    const byesA = shuffledSurvivorsA.slice(phaseTwoDuelCount);
-    const byesB = shuffledSurvivorsB.slice(phaseTwoDuelCount);
-    const phaseTwoDuels = participantsA.map((characterA, index) => (
-      resolveCombatDuel(characterA, participantsB[index], teamA, teamB, index + 1)
-    ));
+    const phaseTwoAvailableA = [...survivorsA];
+    const phaseTwoAvailableB = [...survivorsB];
+    const phaseTwoDuelCount = Math.min(phaseTwoAvailableA.length, phaseTwoAvailableB.length);
+    const participantsA = [];
+    const participantsB = [];
+    const phaseTwoDuels = [];
+    let phaseTwoScoreA = 0;
+    let phaseTwoScoreB = 0;
+    for (let index = 0; index < phaseTwoDuelCount; index += 1) {
+      const situationA = { combatPhase:"PHASE_TWO", duelIndex:index + 1, scoreFor:phaseTwoScoreA, scoreAgainst:phaseTwoScoreB };
+      const situationB = { combatPhase:"PHASE_TWO", duelIndex:index + 1, scoreFor:phaseTwoScoreB, scoreAgainst:phaseTwoScoreA };
+      const choiceA = selectAICombatant(phaseTwoAvailableA, situationA, random);
+      const choiceB = selectAICombatant(phaseTwoAvailableB, situationB, random);
+      removeSelected(phaseTwoAvailableA, choiceA.character);
+      removeSelected(phaseTwoAvailableB, choiceB.character);
+      participantsA.push(choiceA.character);
+      participantsB.push(choiceB.character);
+      const duel = resolveCombatDuel(choiceA.character, choiceB.character, teamA, teamB, index + 1, random);
+      phaseTwoDuels.push(duel);
+      phaseTwoScoreA += Number(duel.winner?.side === "A");
+      phaseTwoScoreB += Number(duel.winner?.side === "B");
+    }
+    const byesA = phaseTwoAvailableA;
+    const byesB = phaseTwoAvailableB;
     survivorsA = [
       ...byesA,
       ...phaseTwoDuels
@@ -307,16 +400,30 @@
     });
   }
 
+  function selectTeamCaptain(memberCharacters) {
+    if (!Array.isArray(memberCharacters) || memberCharacters.length !== MATCH_RULES.teamSize) {
+      throw new RangeError(`选队长时必须提供${MATCH_RULES.teamSize}名武将`);
+    }
+    return [...memberCharacters].sort((left, right) => (
+      calculateCombatPower(right) - calculateCombatPower(left) || left.rank - right.rank
+    ))[0];
+  }
+
   function createWorldCupDraw(random = Math.random) {
     const randomizedPool = shuffle(characters, random);
     const participants = randomizedPool.slice(0, 128);
     const notSelected = randomizedPool.slice(128);
     const teamMembers = shuffle(participants, random);
-    const teams = Array.from({ length: 32 }, (_, index) => ({
-      id: `team-${String(index + 1).padStart(2, "0")}`,
-      name: `第${index + 1}队`,
-      members: teamMembers.slice(index * 4, index * 4 + 4).map((character) => character.name)
-    }));
+    const teams = Array.from({ length: 32 }, (_, index) => {
+      const memberCharacters = teamMembers.slice(index * 4, index * 4 + 4);
+      const captain = selectTeamCaptain(memberCharacters);
+      return {
+        id: `team-${String(index + 1).padStart(2, "0")}`,
+        name: `${captain.name}队`,
+        captainName: captain.name,
+        members: memberCharacters.map((character) => character.name)
+      };
+    });
     const randomizedTeams = shuffle(teams, random);
     const groups = "ABCDEFGH".split("").map((label, index) => ({
       id: `group-${label.toLowerCase()}`,
@@ -350,6 +457,11 @@
     const assignedNames = draw.teams.flatMap((team) => team.members);
     if (assignedNames.length !== 128 || new Set(assignedNames).size !== 128) errors.push("球队成员存在遗漏或重复分配");
     if (assignedNames.some((name) => !participantSet.has(name))) errors.push("球队包含非参赛武将");
+    draw.teams.forEach((team) => {
+      const memberCharacters = team.members.map((name) => characters.find((character) => character.name === name));
+      const expectedCaptain = selectTeamCaptain(memberCharacters);
+      if (team.captainName !== expectedCaptain.name || team.name !== `${expectedCaptain.name}队`) errors.push(`${team.id}队长或队名不符合最高综合战力规则`);
+    });
 
     if (draw.groups.some((group) => !Array.isArray(group.teams) || group.teams.length !== 4)) errors.push("存在非4队小组");
     const groupedTeamIds = draw.groups.flatMap((group) => group.teams.map((team) => team.id));
@@ -723,6 +835,7 @@
       if (!["一", "二", "三"].includes(character.subTier)) errors.push(`${character.name}小等级无效`);
       if (!character.trait.trim()) errors.push(`${character.name}缺少特性`);
       if (character.power !== calculateCombatPower(character)) errors.push(`${character.name}综合战力不等于武力与智力中的较高值`);
+      if (!["强攻", "谋略", "防守"].includes(getBattleType(character))) errors.push(`${character.name}战斗属性无效`);
       const expectedTier = character.rank <= 30 ? "天" : character.rank <= 60 ? "地" : character.rank <= 90 ? "人" : "凡";
       if (character.tier !== expectedTier) errors.push(`${character.name}等级与综合排名不一致`);
       const expectedSubTier = character.rank <= 30
@@ -758,12 +871,13 @@
 
   function cardMarkup(character, index = 0) {
     const stats = [["武力", character.martial], ["智力", character.intelligence]];
+    const battleType = getBattleType(character);
     return `
       <button class="warrior-card" type="button" data-name="${character.name}" data-tier="${character.tier}"
         data-faction="${character.faction}" style="--card-index:${Math.min(index, 20)}"
         aria-label="查看${character.name}详情，综合排名第${character.rank}">
         <span class="card-portrait">${portraitMarkup(character)}<span class="portrait-topline"><span class="faction-badge">${character.faction}</span><span class="tier-badge">${character.tier}${character.subTier}</span></span><span class="card-rank"><small>RANK</small><strong>${String(character.rank).padStart(3, "0")}</strong></span></span>
-        <span class="card-main"><span class="card-title-row"><span class="card-name">${character.name}</span><span class="card-power"><span>综合战力</span><strong>${calculateCombatPower(character)}</strong></span></span><span class="card-stats">${stats.map(([label, value]) => `<span class="card-stat"><span>${label}</span><strong>${value}</strong></span>`).join("")}</span></span>
+        <span class="card-main"><span class="card-title-row"><span class="card-name">${character.name}</span><span class="card-power"><span>综合战力</span><strong>${calculateCombatPower(character)}</strong></span></span><span class="card-battle-type" data-battle-type="${battleType}">${BATTLE_TYPE_ICONS[battleType]} ${battleType}</span><span class="card-stats">${stats.map(([label, value]) => `<span class="card-stat"><span>${label}</span><strong>${value}</strong></span>`).join("")}</span></span>
         <span class="card-trait">${character.trait}</span>
       </button>`;
   }
@@ -1062,9 +1176,10 @@
     const character = getCharacterByName(name);
     if (!character) return;
     const stats = [["武力", character.martial], ["智力", character.intelligence]];
+    const battleType = getBattleType(character);
     dialog.classList.remove("team-dialog", "battle-dialog");
     dialog.setAttribute("aria-labelledby", "dialog-name");
-    dialogContent.innerHTML = `<div class="dialog-layout" style="--dialog-faction:${getFactionColor(character.faction)}"><div class="dialog-portrait">${portraitMarkup(character)}<span class="dialog-rank">RANK ${String(character.rank).padStart(3, "0")}</span></div><div class="dialog-info"><p class="dialog-meta">${character.faction} · ${character.tier}${character.subTier}级武将</p><h3 id="dialog-name">${character.name}</h3><div class="dialog-power-row"><span>综合战力</span><strong>${calculateCombatPower(character)}</strong></div><div class="dialog-stats">${stats.map(([label, value]) => `<div class="dialog-stat"><span>${label}</span><span class="stat-track"><i style="width:${value}%"></i></span><strong>${value}</strong></div>`).join("")}</div><div class="dialog-trait"><small>武将特性</small><strong>${character.trait}</strong></div></div></div>`;
+    dialogContent.innerHTML = `<div class="dialog-layout" style="--dialog-faction:${getFactionColor(character.faction)}"><div class="dialog-portrait">${portraitMarkup(character)}<span class="dialog-rank">RANK ${String(character.rank).padStart(3, "0")}</span></div><div class="dialog-info"><p class="dialog-meta">${character.faction} · ${character.tier}${character.subTier}级武将</p><h3 id="dialog-name">${character.name}</h3><div class="dialog-battle-type" data-battle-type="${battleType}">${BATTLE_TYPE_ICONS[battleType]} ${battleType}</div><div class="dialog-power-row"><span>综合战力</span><strong>${calculateCombatPower(character)}</strong></div><div class="dialog-stats">${stats.map(([label, value]) => `<div class="dialog-stat"><span>${label}</span><span class="stat-track"><i style="width:${value}%"></i></span><strong>${value}</strong></div>`).join("")}</div><div class="dialog-trait"><small>武将特性</small><strong>${character.trait}</strong></div></div></div>`;
     openDialog();
   }
 
@@ -1090,8 +1205,13 @@
   }
 
   function duelRecordMarkup(duel) {
-    const result = duel.mutualDestruction ? "战力相同 · 同归于尽" : `${duel.winner.name}胜`;
-    return `<div class="battle-duel"><span>第${duel.duelNumber}场</span><b>${duel.fighterA.name} ${duel.fighterA.power}</b><i>VS</i><b>${duel.fighterB.name} ${duel.fighterB.power}</b><strong>${result}</strong></div>`;
+    const result = duel.mutualDestruction ? "实际战力相同 · 同归于尽" : `${duel.winner.name}胜`;
+    const typeA = getBattleType(duel.fighterA);
+    const typeB = getBattleType(duel.fighterB);
+    const effectLabel = (fighter) => fighter.typeMultiplier > 1 ? "属性克制 +6%" : fighter.typeMultiplier < 1 ? "受到克制 -6%" : "同类型 ±0%";
+    const upsetAnnouncement = getUpsetAnnouncement(duel.upset);
+    const upsetLabel = upsetAnnouncement ? `<em>${upsetAnnouncement.headline}</em>` : "";
+    return `<div class="battle-duel ${duel.upset?.upsetTriggered ? "is-upset" : ""}"><span>第${duel.duelNumber}场</span><b>${duel.fighterA.name} ${duel.fighterA.battlePower}<small>${BATTLE_TYPE_ICONS[typeA]} ${typeA} · ${effectLabel(duel.fighterA)}</small></b><i>VS</i><b>${duel.fighterB.name} ${duel.fighterB.battlePower}<small>${BATTLE_TYPE_ICONS[typeB]} ${typeB} · ${effectLabel(duel.fighterB)}</small></b><strong>${upsetLabel}${result}</strong></div>`;
   }
 
   function survivorNames(summary) {
@@ -1221,6 +1341,9 @@
     getWorldCupState: () => state.worldCup,
     shuffle,
     createWorldCupDraw,
+    selectTeamCaptain,
+    selectAICombatant,
+    aiSelectionConfig: AI_SELECTION_CONFIG,
     validateWorldCupDraw,
     createTournament,
     getGroupStandings,
@@ -1237,8 +1360,12 @@
     finalizeGroupStage,
     advanceKnockoutStage,
     currentRoundKey,
+    calculateBattlePower,
+    getTypeMultiplier,
+    resolveBattlePowerDuel,
     cardMarkup,
     runNewDraw,
+    switchView,
     renderCupPage,
     refreshCupNavigation: updateCupNavigation,
     tournamentStages: TOURNAMENT_STAGES,

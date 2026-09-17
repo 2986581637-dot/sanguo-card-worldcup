@@ -101,7 +101,7 @@ button { color: inherit; }
 .music-control input { width: 76px; accent-color: #a43c31; cursor: pointer; }
 
 main { width: min(1400px, calc(100% - 56px)); margin: 0 auto; }
-.view { animation: view-in .48s ease both; }
+.view { animation: view-in .48s ease; }
 .view[hidden] { display: none !important; }
 
 @keyframes view-in {
@@ -483,6 +483,22 @@ h1 em {
 .card-power span { font-size: 8px; font-weight: 700; letter-spacing: .06em; }
 .card-power strong { font-family: Georgia, serif; font-size: 29px; line-height: 1; }
 
+.card-battle-type,
+.dialog-battle-type {
+  width: fit-content;
+  margin-top: 7px;
+  padding: 3px 8px;
+  color: #5d3825;
+  border: 1px solid rgba(91,57,35,.28);
+  background: rgba(255,255,255,.18);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+.card-battle-type[data-battle-type="谋略"], .dialog-battle-type[data-battle-type="谋略"] { color: #354f70; border-color: rgba(53,79,112,.32); }
+.card-battle-type[data-battle-type="防守"], .dialog-battle-type[data-battle-type="防守"] { color: #3d654d; border-color: rgba(61,101,77,.34); }
+.dialog-battle-type { margin-top: 8px; color: #d7b86f; border-color: rgba(199,164,90,.35); background: rgba(199,164,90,.07); font-size: 11px; }
+
 .card-stats {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -724,6 +740,9 @@ button.standings-row:hover { background: rgba(199,164,90,.06); }
 .battle-duels { display: grid; gap: 7px; }
 .battle-duel { display: grid; grid-template-columns: 42px 1fr auto 1fr 70px; align-items: center; gap: 8px; padding: 9px 10px; border-bottom: 1px solid rgba(224,201,145,.09); color: #9d907d; font-size: 10px; }
 .battle-duel b { color: #d5c5a7; font-weight: 400; }
+.battle-duel b small { display: block; margin-top: 3px; color: #837764; font-size: 8px; }
+.battle-duel.is-upset { border-color: rgba(231,163,52,.38); background: rgba(153,51,31,.11); box-shadow: inset 3px 0 #d89d37; }
+.battle-duel strong em { display: block; margin-bottom: 2px; color: #ffcf67; font-size: 9px; font-style: normal; text-shadow: 0 0 10px rgba(255,126,35,.4); }
 .battle-duel i { color: #755e39; font-family: Georgia, serif; font-style: normal; }
 .battle-duel strong { color: #c7a45a; text-align: right; }
 .battle-skipped { color: #756b5e !important; }
@@ -765,6 +784,10 @@ button.standings-row:hover { background: rgba(199,164,90,.06); }
 .battle-title span { color: #807563; font-size: 9px; letter-spacing: .18em; }
 .battle-title h2 { margin-top: 5px; color: #e7d3a9; font-size: clamp(30px, 4vw, 48px); }
 .battle-title > i { color: #956f35; font-family: Georgia, serif; font-size: 13px; font-style: normal; }
+.battle-scoreboard { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; margin: -8px 0 18px; padding: 11px 18px; color: #9c8c72; border-top: 1px solid rgba(199,164,90,.15); border-bottom: 1px solid rgba(199,164,90,.15); text-align: center; }
+.battle-scoreboard > strong { color: #f0cf78; font-family: Georgia, serif; font-size: 27px; }
+.battle-scoreboard > strong i { margin: 0 7px; color: #9c3a30; font-style: normal; }
+.battle-scoreboard > em { grid-column: 1 / -1; color: #756957; font-size: 8px; font-style: normal; letter-spacing: .15em; }
 .battle-waiting { min-height: 230px; display: grid; place-content: center; justify-items: center; border: 1px dashed rgba(199,164,90,.28); background: radial-gradient(circle, rgba(139,36,31,.12), transparent 60%); text-align: center; }
 .battle-waiting > span { width: 58px; height: 58px; display: grid; place-items: center; color: #e6d0a7; border: 1px solid #a94237; background: #71231f; font-family: "STKaiti", "KaiTi", serif; font-size: 29px; }
 .battle-waiting p { margin: 15px 0 4px; color: #c4b497; }
@@ -784,7 +807,8 @@ button.standings-row:hover { background: rgba(199,164,90,.06); }
 @keyframes fighter-left { from { opacity:0; transform:translateX(-80px) rotate(-4deg); } to { opacity:1; transform:translateX(0); } }
 @keyframes fighter-right { from { opacity:0; transform:translateX(80px) rotate(4deg); } to { opacity:1; transform:translateX(0); } }
 @keyframes vs-reveal { 0%,35% { opacity:0; transform:scale(1.8); } 100% { opacity:1; transform:scale(1); } }
-.battle-status-line { display: flex; justify-content: space-between; gap: 20px; padding: 11px 3px; color: #8e816e; font-size: 10px; }
+.battle-status-line { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; padding: 11px 3px; color: #8e816e; font-size: 10px; }
+.battle-status-line span { padding: 8px 10px; border: 1px solid rgba(199,164,90,.1); background: rgba(255,255,255,.01); text-align: center; }
 .fighter-selection, .opponent-roster { margin-top: 18px; padding: 18px; border: 1px solid rgba(199,164,90,.18); background: rgba(255,255,255,.012); }
 .fighter-selection h3, .opponent-roster h3 { margin: 0 0 13px; color: #d2bc8e; font-size: 14px; }
 .opponent-roster h3 small { margin-left: 8px; color: #716759; font-size: 9px; font-weight: 400; }
@@ -798,6 +822,8 @@ button.standings-row:hover { background: rgba(199,164,90,.06); }
 .player-fighter.is-available:not(:disabled) { cursor: pointer; box-shadow: 0 0 0 1px #d5ad55 inset; }
 .player-fighter.is-available:not(:disabled):hover { transform: translateY(-4px); box-shadow: 0 10px 25px rgba(0,0,0,.3), 0 0 0 2px #d5ad55 inset; }
 .player-fighter.is-selected { transform: translateY(-5px); box-shadow: 0 0 0 3px #d8b054 inset, 0 13px 28px rgba(0,0,0,.34); }
+.player-fighter.is-selected::after { content: "已选择"; position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,238,188,.92); background: rgba(79,31,21,.34); font-family: "STKaiti", "KaiTi", serif; font-size: 18px; pointer-events: none; animation: selection-pulse .55s ease both; }
+.player-fighter.is-played { cursor: not-allowed; }
 .player-fighter.is-fallen { filter: grayscale(1); opacity: .35; }
 .player-fighter.is-fallen i { background: #403c37; }
 .player-fighter.is-survivor i { background: #405e45; }
@@ -809,6 +835,7 @@ button.standings-row:hover { background: rgba(199,164,90,.06); }
 .opponent-card-back strong { margin-top: 2px; color: #b89452; font-size: 13px; }
 .opponent-card-back i { position: absolute; right: 8px; bottom: 8px; padding: 2px 5px; color: #e2d0ad; background: #594527; font-size: 8px; font-style: normal; }
 .opponent-card-back.is-bye i { color: #392b13; background: #d6b15e; }
+.captain-badge { position: absolute; z-index: 3; top: 7px; right: 7px; padding: 3px 7px; color: #ffedb0; border: 1px solid #c59942; background: #70251f; box-shadow: 0 0 12px rgba(215,164,61,.3); font-size: 8px; font-style: normal; }
 .opponent-roster .player-fighter { animation: opponent-reveal .62s ease both; transform-style: preserve-3d; }
 @keyframes opponent-reveal { 0% { opacity:.2; transform:perspective(600px) rotateY(90deg); } 100% { opacity:1; transform:perspective(600px) rotateY(0); } }
 .battle-next-button, .battle-confirm-button { display: block; min-width: 190px; margin: 22px auto 0; padding: 13px 20px; color: #f1deba; border: 1px solid #986f37; background: linear-gradient(135deg, #953027, #6e201c); cursor: pointer; }
@@ -831,6 +858,206 @@ button.standings-row:hover { background: rgba(199,164,90,.06); }
 .post-result strong { color: #dfbd68; font-family: "STKaiti", "KaiTi", serif; font-size: 21px; }
 .journey-end > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 25px; }
 .journey-end.is-complete { border-color: #a88642; box-shadow: 0 0 50px rgba(199,164,90,.1); }
+
+/* 玩家战斗演出：只负责视觉反馈，不参与胜负计算 */
+.player-battle-view { position: relative; }
+.battle-menu-button { position: absolute; z-index: 8; top: 7px; right: 9px; padding: 7px 12px; color: #d9c59d; border: 1px solid rgba(199,164,90,.42); background: rgba(17,14,11,.82); font-size: 10px; letter-spacing: .1em; cursor: pointer; transition: border-color .2s ease, background .2s ease, transform .2s ease; }
+.battle-menu-button:hover { border-color: #c7a45a; background: #2a2117; transform: translateY(-1px); }
+.battle-menu-button span { margin-right: 5px; color: #c44739; }
+.duel-presentation { position: relative; padding-top: 104px; }
+.matchup-reveal { position: absolute; z-index: 7; top: 0; left: 50%; width: min(720px, 94%); display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; padding: 9px 18px; color: #e0c999; border: 1px solid rgba(199,164,90,.28); background: rgba(20,16,12,.96); text-align: center; transform: translateX(-50%); animation: matchup-reveal .52s ease both; }
+.matchup-reveal > i { color: #c64839; font-family: Georgia, serif; font-style: normal; }
+.matchup-reveal small { color: #99866a; font-size: 9px; }
+.matchup-reveal > span, .matchup-reveal > em { grid-column: 1 / -1; color: #c99e49; font-size: 9px; font-style: normal; }
+.matchup-reveal > em { color: #efc768; }
+.battle-callout { position: absolute; z-index: 7; top: 58px; left: 50%; min-width: min(440px, 82%); padding: 8px 24px; color: #d7c29a; border: 1px solid rgba(199,164,90,.38); background: linear-gradient(90deg, transparent, rgba(24,19,14,.96) 14%, rgba(24,19,14,.96) 86%, transparent); text-align: center; transform: translateX(-50%); animation: battle-callout-in .45s ease both; }
+.battle-callout span, .battle-callout strong { display: inline-block; }
+.battle-callout span { font-size: 12px; letter-spacing: .08em; }
+.battle-callout strong { margin-left: 13px; color: #e75d46; font-family: "STKaiti", "KaiTi", serif; font-size: 19px; }
+.battle-callout.strategy { color: #b8cfff; border-color: rgba(105,142,218,.48); box-shadow: 0 0 28px rgba(74,112,194,.15); }
+.battle-callout.strategy strong { color: #8ab8ff; }
+.battle-callout.upset { color: #ffe19a; border-color: rgba(255,185,62,.8); background: linear-gradient(90deg, transparent, rgba(111,31,20,.97) 14%, rgba(111,31,20,.97) 86%, transparent); box-shadow: 0 0 35px rgba(255,147,38,.3); animation: battle-callout-in .35s ease both, upset-callout-pulse .75s ease .25s both; }
+.battle-callout.upset strong { color: #fff0a6; text-shadow: 0 0 16px #ff7b2e; }
+.battle-callout.surge { color: #ffd09a; border-color: rgba(213,123,51,.6); background: linear-gradient(90deg, transparent, rgba(79,40,20,.96) 14%, rgba(79,40,20,.96) 86%, transparent); box-shadow: 0 0 24px rgba(207,106,38,.18); }
+.battle-callout.surge strong { color: #f5b96a; text-shadow: 0 0 11px rgba(225,112,41,.45); }
+.battle-callout.is-critical strong { color: #ffd36a; text-shadow: 0 0 16px rgba(255,178,47,.65); animation: critical-pulse .6s ease .35s both; }
+.duel-arena { position: relative; min-height: 320px; isolation: isolate; }
+.duel-arena::after { content: ""; position: absolute; z-index: -1; inset: 0; opacity: 0; pointer-events: none; }
+.duel-arena.effect-strike.is-resolving::after { background: radial-gradient(circle, rgba(255,204,91,.46), transparent 48%); animation: arena-flash .7s ease .46s both; }
+.duel-arena.effect-strategy.is-resolving::after { background: radial-gradient(circle, rgba(75,122,216,.52), transparent 52%); animation: strategy-wave 1.1s ease .38s both; }
+.duel-arena.effect-clash.is-resolving::after { background: radial-gradient(circle, rgba(216,62,49,.58), transparent 52%); animation: arena-flash .9s ease .38s both; }
+.duel-arena.effect-upset.is-resolving::after { background: radial-gradient(circle, rgba(255,186,63,.72), rgba(193,48,30,.3) 38%, transparent 66%); animation: arena-flash 1.05s ease .3s both; }
+.duel-arena.effect-surge.is-resolving::after { background: radial-gradient(circle, rgba(231,136,54,.48), rgba(120,53,23,.18) 40%, transparent 65%); animation: arena-flash .8s ease .36s both; }
+.arena-fighter { z-index: 2; min-width: 0; padding: 8px; }
+.fighter-shell { position: relative; min-height: 245px; display: flex; align-items: center; flex-direction: column; justify-content: flex-end; overflow: hidden; padding: 108px 12px 16px; border: 1px solid rgba(65,44,25,.3); background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(71,46,25,.1)); }
+.arena-captain-mark { position: absolute; z-index: 5; top: 7px; right: 7px; padding: 3px 7px; color: #fff0b6; border: 1px solid #d1a14a; background: rgba(106,31,24,.92); box-shadow: 0 0 16px rgba(231,174,61,.38); font-size: 8px; font-style: normal; animation: captain-mark-in .5s ease .25s both; }
+.fighter-battle-type { margin: 3px 0 1px; color: #705f49; font-size: 9px; font-style: normal; font-weight: 700; }
+.arena-fighter.is-strategist .fighter-battle-type { color: #476b9c; }
+.arena-fighter.is-defender .fighter-battle-type { color: #3f7054; }
+.arena-fighter.is-defender .fighter-shell { box-shadow: inset 0 0 0 2px rgba(67,112,82,.2); }
+.arena-portrait { position: absolute; inset: 0 0 auto; height: 112px; overflow: hidden; background: radial-gradient(circle at 50% 25%, rgba(255,245,211,.75), rgba(77,58,34,.3)); }
+.arena-portrait img { width: 100%; height: 145%; display: block; object-fit: cover; object-position: center 18%; }
+.arena-portrait > span { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(70,43,24,.32); font-family: "STKaiti", "KaiTi", serif; font-size: 58px; }
+.arena-portrait img + span { display: none; }
+.duel-arena:not(.is-resolving):not(.is-resolved) .arena-fighter.is-loser { filter: none; opacity: 1; }
+.fighter-health { width: 100%; height: 8px; margin-top: 12px; overflow: hidden; border: 1px solid rgba(57,39,25,.45); border-radius: 999px; background: rgba(44,29,20,.38); box-shadow: inset 0 1px 3px rgba(0,0,0,.35); }
+.fighter-health-fill { width: 100%; height: 100%; display: block; border-radius: inherit; background: linear-gradient(90deg, #8d1717, #e54e36 60%, #efb34f); box-shadow: 0 0 8px rgba(212,53,39,.55); transition: width .78s cubic-bezier(.2,.72,.2,1) .58s; }
+.damage-float { position: absolute; z-index: 8; top: 35%; left: 50%; color: #ffdbc0; font-family: Georgia, serif; font-size: 32px; font-weight: 700; opacity: 0; pointer-events: none; text-shadow: 0 2px 4px #5a0905, 0 0 18px #ef3628; transform: translate(-50%,0) scale(.7); }
+.duel-arena.is-resolving .damage-float { animation: damage-float 1.05s ease .58s both; }
+.duel-arena.is-resolving .arena-fighter.is-target { animation: fighter-hit .56s ease .58s both, fighter-defeated .72s ease 1.05s forwards; }
+.duel-arena.is-resolving .arena-fighter.is-attacker.from-left { animation: fighter-left .4s ease both, attack-from-left .72s cubic-bezier(.2,.78,.22,1) .4s; }
+.duel-arena.is-resolving .arena-fighter.is-attacker.from-right { animation: fighter-right .4s ease both, attack-from-right .72s cubic-bezier(.2,.78,.22,1) .4s; }
+.duel-arena.is-resolving.effect-strategy .arena-fighter.is-attacker { filter: drop-shadow(0 0 14px rgba(87,139,235,.85)); }
+.battle-energy { position: absolute; z-index: 1; inset: 0; pointer-events: none; }
+.battle-energy i { position: absolute; left: 50%; top: 50%; width: 7px; height: 7px; border-radius: 50%; background: #f1c15b; opacity: 0; box-shadow: 0 0 12px currentColor; }
+.effect-strategy .battle-energy i { color: #81adff; background: #a7c5ff; }
+.effect-clash .battle-energy i { color: #ff5848; background: #ffc2a6; }
+.effect-upset .battle-energy i { color: #ffd35f; background: #fff0a3; }
+.effect-surge .battle-energy i { color: #e8954c; background: #ffc083; }
+.duel-arena.is-resolving .battle-energy i { animation: battle-particle .9s ease .48s both; }
+.battle-energy i:nth-child(2) { --particle-x: 70px; --particle-y: -45px; animation-delay: .54s !important; }
+.battle-energy i:nth-child(3) { --particle-x: -82px; --particle-y: 34px; animation-delay: .6s !important; }
+.battle-energy i:nth-child(4) { --particle-x: 98px; --particle-y: 42px; animation-delay: .66s !important; }
+.battle-energy i:nth-child(5) { --particle-x: -58px; --particle-y: -64px; animation-delay: .72s !important; }
+.battle-energy i:nth-child(6) { --particle-x: 26px; --particle-y: 72px; animation-delay: .78s !important; }
+@keyframes attack-from-left { 0%,100% { transform: translateX(0) scale(1.04); } 45% { transform: translateX(clamp(32px, 6vw, 74px)) scale(1.08) rotate(1deg); } }
+@keyframes attack-from-right { 0%,100% { transform: translateX(0) scale(1.04); } 45% { transform: translateX(clamp(-74px, -6vw, -32px)) scale(1.08) rotate(-1deg); } }
+@keyframes fighter-hit { 0%,100% { transform: translateX(0); } 18% { transform: translateX(-10px); } 36% { transform: translateX(11px); filter: sepia(.5) saturate(2.4) hue-rotate(315deg); } 58% { transform: translateX(-7px); } 78% { transform: translateX(4px); } }
+@keyframes fighter-defeated { from { filter: none; opacity: 1; } to { filter: grayscale(1); opacity: .46; transform: translateY(9px) rotate(1deg); } }
+@keyframes damage-float { 0% { opacity: 0; transform: translate(-50%,14px) scale(.7); } 25% { opacity: 1; transform: translate(-50%,-4px) scale(1.18); } 100% { opacity: 0; transform: translate(-50%,-62px) scale(.94); } }
+@keyframes battle-particle { 0% { opacity: 0; transform: translate(-50%,-50%) scale(.2); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(calc(-50% + var(--particle-x, -66px)), calc(-50% + var(--particle-y, -40px))) scale(1.6); } }
+@keyframes arena-flash { 0%,100% { opacity: 0; } 35% { opacity: 1; } }
+@keyframes strategy-wave { 0% { opacity: 0; transform: scale(.3) rotate(0); } 45% { opacity: 1; } 100% { opacity: 0; transform: scale(1.35) rotate(12deg); } }
+@keyframes battle-callout-in { from { opacity: 0; transform: translate(-50%,-14px) scale(.94); } to { opacity: 1; transform: translate(-50%,0) scale(1); } }
+@keyframes upset-callout-pulse { 0% { transform: translateX(-50%) scale(.8); } 55% { transform: translateX(-50%) scale(1.12); } 100% { transform: translateX(-50%) scale(1); } }
+@keyframes critical-pulse { 0% { transform: scale(.7); opacity: 0; } 65% { transform: scale(1.28); } 100% { transform: scale(1); opacity: 1; } }
+@keyframes matchup-reveal { from { opacity: 0; transform: translate(-50%,-12px) scale(.96); } to { opacity: 1; transform: translate(-50%,0) scale(1); } }
+@keyframes captain-mark-in { from { opacity: 0; transform: scale(1.5) rotate(-8deg); } to { opacity: 1; transform: none; } }
+@keyframes selection-pulse { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: scale(1); } }
+
+.battle-result-announcement { position: relative; min-height: 230px; display: grid; place-content: center; margin: 24px 0 10px; overflow: hidden; border: 1px solid rgba(199,164,90,.36); background: radial-gradient(circle, rgba(161,110,31,.24), rgba(20,16,12,.88) 65%); text-align: center; animation: result-reveal .72s ease both; }
+.battle-result-announcement > span { z-index: 1; color: #d5b765; font-size: 12px; letter-spacing: .35em; }
+.battle-result-announcement h2 { z-index: 1; margin: 8px 0 2px; color: #ffe183; font-family: "STKaiti", "KaiTi", serif; font-size: clamp(48px, 9vw, 88px); line-height: 1; text-shadow: 0 0 25px rgba(236,176,54,.4); }
+.battle-result-announcement p { z-index: 1; color: #b9a98b; font-size: 12px; }
+.battle-result-announcement.is-defeat { border-color: rgba(126,133,143,.35); background: radial-gradient(circle, rgba(63,72,84,.3), rgba(18,18,20,.92) 68%); }
+.battle-result-announcement.is-defeat h2 { color: #b7c0c9; text-shadow: 0 0 22px rgba(115,129,145,.35); }
+.battle-result-announcement.is-draw h2 { color: #d0c5af; }
+.battle-result-announcement.is-wipeout h2 { animation: wipeout-title .85s cubic-bezier(.17,.84,.32,1.25) .2s both; }
+.result-rays { position: absolute; width: 360px; height: 360px; left: 50%; top: 50%; opacity: .22; background: repeating-conic-gradient(from 0deg, #e9bf5b 0 5deg, transparent 5deg 14deg); transform: translate(-50%,-50%); animation: result-rays 16s linear infinite; mask-image: radial-gradient(circle, #000 0 32%, transparent 70%); }
+.is-defeat .result-rays { filter: grayscale(1); opacity: .1; }
+@keyframes result-reveal { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: scale(1); } }
+@keyframes wipeout-title { from { opacity: 0; transform: scale(1.8); letter-spacing: .3em; } to { opacity: 1; transform: scale(1); letter-spacing: normal; } }
+@keyframes result-rays { to { transform: translate(-50%,-50%) rotate(360deg); } }
+
+.battle-pause-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(5,4,3,.82); backdrop-filter: blur(7px); animation: pause-backdrop-in .22s ease both; }
+.battle-pause-menu { position: relative; width: min(440px, 100%); max-height: calc(100vh - 40px); overflow: auto; padding: 42px clamp(25px, 7vw, 48px) 30px; color: #cfc0a4; border: 1px solid #80643a; background: radial-gradient(circle at 50% 0, rgba(159,54,42,.23), transparent 44%), linear-gradient(145deg, #211a13, #110e0b); box-shadow: 0 28px 80px rgba(0,0,0,.65), 0 0 0 1px rgba(233,200,124,.06) inset; text-align: center; animation: pause-menu-in .32s cubic-bezier(.2,.78,.22,1) both; }
+.battle-pause-menu::before, .battle-pause-menu::after { content: ""; position: absolute; top: 13px; width: 72px; height: 1px; background: linear-gradient(90deg, transparent, #8b6c3c); }
+.battle-pause-menu::before { left: 18px; }
+.battle-pause-menu::after { right: 18px; transform: scaleX(-1); }
+.pause-menu-seal { width: 54px; height: 54px; display: grid; place-items: center; margin: 0 auto 14px; color: #f0d399; border: 1px solid #bb4638; background: #71231f; box-shadow: 0 0 24px rgba(176,54,42,.35); font-family: "STKaiti", "KaiTi", serif; font-size: 27px; transform: rotate(45deg); }
+.battle-pause-menu > p { margin: 0; color: #9d8050; font-size: 9px; letter-spacing: .32em; }
+.battle-pause-menu h2 { margin: 6px 0 5px; color: #ebd5a7; font-family: "STKaiti", "KaiTi", serif; font-size: 36px; }
+.battle-pause-menu > small { color: #807464; font-size: 10px; }
+.pause-menu-actions { display: grid; gap: 9px; margin: 25px 0 18px; }
+.pause-menu-actions button { padding: 12px 18px; color: #dec89f; border: 1px solid #644d2f; background: rgba(255,255,255,.025); cursor: pointer; transition: .2s ease; }
+.pause-menu-actions button:hover { color: #ffe1a2; border-color: #b18b4a; background: rgba(143,44,36,.16); transform: translateY(-1px); }
+.pause-menu-actions button:first-child { color: #fff0c8; border-color: #a97e38; background: linear-gradient(135deg, #8f3028, #63211d); }
+.pause-menu-actions button.is-danger { color: #aa9e8c; border-color: #493e32; }
+.battle-pause-menu > em { display: block; color: #6f665a; font-size: 9px; font-style: normal; line-height: 1.6; }
+@keyframes pause-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pause-menu-in { from { opacity: 0; transform: translateY(20px) scale(.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+.post-match-view { position: relative; overflow: hidden; animation: result-reveal .7s ease both; }
+.post-match-view.is-victory { border-color: #94733b; box-shadow: 0 0 45px rgba(194,145,49,.09); }
+.post-match-view.is-defeat { border-color: #4c4b48; filter: saturate(.72); }
+.post-match-emblem { width: 74px; height: 74px; display: grid; place-items: center; margin: 0 auto 22px; color: #f0d68e; border: 1px solid #b89044; border-radius: 50%; background: radial-gradient(circle, #7a2d25, #2a1914); box-shadow: 0 0 34px rgba(189,132,38,.28); font-family: "STKaiti", "KaiTi", serif; font-size: 38px; animation: emblem-drop .65s cubic-bezier(.2,.8,.24,1.2) both; }
+.post-match-view.is-defeat .post-match-emblem { color: #b8b6b1; border-color: #696760; background: radial-gradient(circle, #424243, #1c1b1a); box-shadow: none; }
+@keyframes emblem-drop { from { opacity: 0; transform: translateY(-24px) rotate(-18deg) scale(1.4); } to { opacity: 1; transform: none; } }
+
+/* 四强晋级与赛事颁奖仪式 */
+.tournament-ceremony { position: relative; max-width: 940px; min-height: 620px; display: flex; align-items: center; flex-direction: column; justify-content: center; margin: 32px auto; overflow: hidden; padding: clamp(46px, 8vw, 86px) clamp(22px, 7vw, 76px); color: #d6c7aa; border: 1px solid #765b31; background: radial-gradient(circle at 50% 24%, rgba(178,126,39,.2), transparent 32%), linear-gradient(145deg, rgba(39,29,18,.98), rgba(13,11,9,.99)); box-shadow: 0 30px 90px rgba(0,0,0,.48), inset 0 0 90px rgba(201,157,67,.035); text-align: center; isolation: isolate; animation: ceremony-enter .8s cubic-bezier(.2,.78,.22,1) both; }
+.tournament-ceremony::before, .tournament-ceremony::after { content: ""; position: absolute; z-index: -1; width: 68%; height: 1px; left: 16%; background: linear-gradient(90deg, transparent, #a98545, transparent); }
+.tournament-ceremony::before { top: 22px; }
+.tournament-ceremony::after { bottom: 22px; }
+.tournament-ceremony > p { margin: 0 0 7px; color: #af8d50; font-size: 10px; letter-spacing: .28em; }
+.tournament-ceremony > h2 { margin: 5px 0; color: #ffe09a; font-family: "STKaiti", "KaiTi", serif; font-size: clamp(46px, 8vw, 84px); line-height: 1.05; text-shadow: 0 0 30px rgba(225,168,57,.3); }
+.tournament-ceremony > h3 { margin: 12px 0 3px; color: #ead5a8; font-family: "STKaiti", "KaiTi", serif; font-size: clamp(25px, 4vw, 40px); }
+.ceremony-caption { color: #9d8c72; font-size: 11px; letter-spacing: .14em; }
+.ceremony-emblem { position: relative; width: 86px; height: 86px; display: grid; place-items: center; margin-bottom: 22px; color: #f3d28c; border: 1px solid #c44d3f; background: radial-gradient(circle, #8e3027, #451b18); box-shadow: 0 0 0 8px rgba(141,48,39,.1), 0 0 36px rgba(195,74,56,.28); font-family: "STKaiti", "KaiTi", serif; font-size: 45px; transform: rotate(45deg); animation: ceremony-emblem-in .75s cubic-bezier(.18,.86,.28,1.3) .15s both; }
+.ceremony-emblem > span { transform: rotate(-45deg); }
+.final-four-field { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; margin: 30px 0 20px; }
+.final-four-field > div { position: relative; min-height: 86px; display: grid; place-content: center; padding: 15px 9px; border: 1px solid rgba(164,132,74,.25); background: rgba(255,255,255,.018); animation: ceremony-team-in .55s ease both; animation-delay: calc(var(--slot, 0) * 90ms + 300ms); }
+.final-four-field > div:nth-child(2) { --slot: 1; }
+.final-four-field > div:nth-child(3) { --slot: 2; }
+.final-four-field > div:nth-child(4) { --slot: 3; }
+.final-four-field > div.is-player { border-color: #c39543; background: linear-gradient(145deg, rgba(153,52,42,.25), rgba(194,144,54,.08)); box-shadow: 0 0 26px rgba(204,151,52,.13), inset 0 0 0 1px rgba(233,194,111,.08); }
+.final-four-field small, .final-four-field strong, .final-four-field em { display: block; }
+.final-four-field small { color: #755f3b; font-family: Georgia, serif; font-size: 8px; letter-spacing: .15em; }
+.final-four-field strong { margin-top: 6px; color: #d7c49d; font-family: "STKaiti", "KaiTi", serif; font-size: 20px; }
+.final-four-field em { margin-top: 4px; color: #d7a949; font-size: 8px; font-style: normal; }
+.ceremony-next { min-width: min(420px, 100%); margin: 2px 0 25px; padding: 14px 20px; border-top: 1px solid rgba(194,151,72,.2); border-bottom: 1px solid rgba(194,151,72,.2); }
+.ceremony-next small, .ceremony-next strong, .ceremony-next span { display: block; }
+.ceremony-next small { color: #756953; font-size: 9px; letter-spacing: .2em; }
+.ceremony-next strong { margin: 5px 0; color: #e6c981; font-family: "STKaiti", "KaiTi", serif; font-size: 25px; }
+.ceremony-next span { color: #857866; font-size: 9px; }
+.ceremony-actions { position: relative; z-index: 3; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 20px; }
+.ceremony-actions button { min-width: 145px; padding: 12px 18px; color: #cdbc9a; border: 1px solid #635038; background: rgba(255,255,255,.025); cursor: pointer; transition: transform .2s ease, border-color .2s ease, background .2s ease; }
+.ceremony-actions button:hover { color: #f0d9ab; border-color: #a47c3c; background: rgba(151,48,39,.15); transform: translateY(-2px); }
+.ceremony-actions button.is-primary { color: #fff0c6; border-color: #b4873e; background: linear-gradient(135deg, #a2372d, #6d231d); box-shadow: 0 8px 24px rgba(86,19,15,.3); }
+.ceremony-sparks { position: absolute; z-index: -1; inset: 0; pointer-events: none; }
+.ceremony-sparks i { position: absolute; width: 5px; height: 5px; left: 50%; top: 32%; border-radius: 50%; background: #f0be56; opacity: 0; box-shadow: 0 0 12px #e9a83e; animation: ceremony-spark 2.8s ease-in-out infinite; }
+.ceremony-sparks i:nth-child(2n) { background: #c84a3d; box-shadow: 0 0 12px #b93c32; }
+.ceremony-sparks i:nth-child(3n) { width: 3px; height: 3px; animation-duration: 3.6s; }
+.ceremony-sparks i:nth-child(1) { --sx:-330px; --sy:-105px; animation-delay:.1s; }
+.ceremony-sparks i:nth-child(2) { --sx:310px; --sy:-82px; animation-delay:.45s; }
+.ceremony-sparks i:nth-child(3) { --sx:-250px; --sy:150px; animation-delay:.8s; }
+.ceremony-sparks i:nth-child(4) { --sx:275px; --sy:135px; animation-delay:1.15s; }
+.ceremony-sparks i:nth-child(5) { --sx:-150px; --sy:-145px; animation-delay:1.5s; }
+.ceremony-sparks i:nth-child(6) { --sx:165px; --sy:-135px; animation-delay:1.85s; }
+.ceremony-sparks i:nth-child(7) { --sx:-365px; --sy:55px; animation-delay:2.2s; }
+.ceremony-sparks i:nth-child(8) { --sx:360px; --sy:35px; animation-delay:2.55s; }
+.ceremony-sparks i:nth-child(9) { --sx:-70px; --sy:210px; animation-delay:.3s; }
+.ceremony-sparks i:nth-child(10) { --sx:82px; --sy:205px; animation-delay:.75s; }
+.ceremony-sparks i:nth-child(11) { --sx:-285px; --sy:-12px; animation-delay:1.25s; }
+.ceremony-sparks i:nth-child(12) { --sx:294px; --sy:-8px; animation-delay:1.7s; }
+.ceremony-sparks i:nth-child(13) { --sx:-210px; --sy:92px; animation-delay:2.15s; }
+.ceremony-sparks i:nth-child(14) { --sx:220px; --sy:84px; animation-delay:2.5s; }
+.ceremony-sparks i:nth-child(15) { --sx:-24px; --sy:-184px; animation-delay:1s; }
+.ceremony-sparks i:nth-child(16) { --sx:34px; --sy:174px; animation-delay:1.9s; }
+
+.award-ceremony { min-height: 680px; }
+.award-ceremony .award-trophy { width: 108px; height: 108px; border-radius: 50%; transform: none; font-size: 54px; }
+.champion-ceremony { border-color: #b68c40; background: radial-gradient(circle at 50% 24%, rgba(230,174,56,.3), transparent 34%), linear-gradient(145deg, #312516, #100d09 70%); box-shadow: 0 34px 100px rgba(0,0,0,.55), 0 0 48px rgba(209,155,52,.14); }
+.champion-ceremony > h2 { color: #ffe6a0; animation: champion-title 1s cubic-bezier(.18,.86,.28,1.2) .25s both; }
+.champion-ceremony .award-trophy { border-color: #e0b04d; background: radial-gradient(circle, #8a6220, #33200c); box-shadow: 0 0 0 10px rgba(222,169,57,.08), 0 0 55px rgba(239,187,70,.32); }
+.runner-up-ceremony { border-color: #77766f; background: radial-gradient(circle at 50% 24%, rgba(176,181,188,.17), transparent 34%), linear-gradient(145deg, #252523, #11110f); }
+.runner-up-ceremony > h2 { color: #e1ded5; text-shadow: 0 0 25px rgba(191,195,201,.18); }
+.runner-up-ceremony .award-trophy { color: #e0ded7; border-color: #8a8982; background: radial-gradient(circle, #65645e, #292824); box-shadow: 0 0 38px rgba(181,184,187,.16); }
+.third-place-ceremony { border-color: #8b6237; background: radial-gradient(circle at 50% 24%, rgba(176,101,47,.22), transparent 34%), linear-gradient(145deg, #2c2119, #100d0b); }
+.third-place-ceremony .award-trophy { color: #efbd82; border-color: #a66c39; background: radial-gradient(circle, #76441f, #2b1a10); box-shadow: 0 0 38px rgba(188,104,46,.2); }
+.final-four-exit { border-color: #755c3b; background: radial-gradient(circle at 50% 24%, rgba(131,68,48,.18), transparent 34%), linear-gradient(145deg, #292018, #100d0b); }
+.final-four-exit > h2 { color: #dbc49b; }
+.final-four-exit .award-trophy { border-radius: 0; transform: rotate(45deg); color: #ddc59c; border-color: #83613d; background: radial-gradient(circle, #5b3827, #281915); }
+.journey-complete { filter: saturate(.75); }
+.ceremony-description { max-width: 610px; margin: 13px auto 0 !important; color: #918471 !important; font-size: 11px !important; line-height: 1.8; letter-spacing: .04em !important; }
+.award-team-roster { width: min(680px,100%); display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; margin: 22px 0 4px; }
+.award-team-roster > span { position: relative; padding: 12px 8px; border: 1px solid rgba(199,164,90,.2); background: rgba(255,255,255,.02); }
+.award-team-roster > span.is-captain { border-color: #c39745; box-shadow: inset 0 0 20px rgba(211,157,57,.08); }
+.award-team-roster b, .award-team-roster small { display: block; }
+.award-team-roster b { color: #e0c99b; font-family: "STKaiti", "KaiTi", serif; font-size: 19px; }
+.award-team-roster small { margin-top: 4px; color: #8c7b60; font-size: 8px; }
+.award-result { width: min(570px, 100%); display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 20px; margin: 28px 0 3px; padding: 18px; border-top: 1px solid rgba(190,148,72,.2); border-bottom: 1px solid rgba(190,148,72,.2); }
+.award-result span, .award-result strong { display: block; }
+.award-result span { color: #756b5d; font-size: 9px; }
+.award-result strong { margin-top: 5px; color: #e0c27e; font-family: "STKaiti", "KaiTi", serif; font-size: 23px; }
+.award-result i { width: 1px; height: 34px; background: rgba(191,151,77,.25); }
+.award-glow { position: absolute; z-index: -1; width: 520px; height: 520px; left: 50%; top: 5%; opacity: .13; background: repeating-conic-gradient(from 0deg, #f0bd55 0 4deg, transparent 4deg 13deg); transform: translateX(-50%); animation: award-rays 28s linear infinite; mask-image: radial-gradient(circle, #000 0 18%, transparent 67%); }
+@keyframes ceremony-enter { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes ceremony-emblem-in { from { opacity: 0; transform: rotate(0) scale(1.7); } to { opacity: 1; transform: rotate(45deg) scale(1); } }
+@keyframes ceremony-team-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes ceremony-spark { 0%,100% { opacity: 0; transform: translate(0,0) scale(.3); } 25% { opacity: .8; } 70% { opacity: .3; } 100% { transform: translate(var(--sx),var(--sy)) scale(1.5); } }
+@keyframes champion-title { from { opacity: 0; transform: scale(1.65); letter-spacing: .35em; } to { opacity: 1; transform: scale(1); letter-spacing: normal; } }
+@keyframes award-rays { to { transform: translateX(-50%) rotate(360deg); } }
 
 /* 详情弹窗 */
 .character-dialog {
@@ -973,6 +1200,13 @@ footer i { width: 3px; height: 3px; border-radius: 50%; background: #795a2f; }
   .arena-fighter b { font-size: 25px; }
   .final-survivors { grid-template-columns: 1fr; }
   .final-survivors > i { display: none; }
+  .tournament-ceremony { min-height: 560px; margin-top: 18px; }
+  .final-four-field { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .ceremony-actions { width: 100%; flex-direction: column; }
+  .ceremony-actions button { width: 100%; }
+  .award-result { grid-template-columns: 1fr; gap: 10px; }
+  .award-result i { width: 50%; height: 1px; margin: 0 auto; }
+  .ceremony-sparks { opacity: .6; }
   .gallery-heading p:not(.eyebrow) { font-size: 12px; }
   .collection-count strong { font-size: 36px; }
   .gallery-toolbar { align-items: stretch; flex-direction: column; }

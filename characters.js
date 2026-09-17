@@ -62,6 +62,18 @@ const PROFILE_OVERRIDES = Object.freeze({
   许褚: [50, "虎卫撼阵"], 袁绍: [76, "四州名望"]
 });
 
+// 战斗属性先按全体武力、智力的相对水平计算，再对少数人物定位做统一校正。
+const BATTLE_TYPE_OVERRIDES = Object.freeze({
+  徐庶: "谋略", 诸葛瑾: "谋略",
+  满宠: "防守", 曹仁: "防守", 王平: "防守", 张任: "防守", 严颜: "防守",
+  郭淮: "防守", 于禁: "防守", 曹真: "防守",
+  文丑: "强攻", 武安国: "强攻", 王双: "强攻", 高览: "强攻", 韩猛: "强攻",
+  文鸯: "强攻", 周仓: "强攻", 凌统: "强攻"
+});
+
+const BATTLE_TYPE_ICONS = Object.freeze({ 强攻: "⚔️", 谋略: "🧠", 防守: "🛡️" });
+const BATTLE_TYPES = Object.freeze(["强攻", "谋略", "防守"]);
+
 // 第一批原创人物立绘；未配置的角色继续使用现有古风剪影占位图。
 const PORTRAIT_PATHS = Object.freeze({
   吕布: "assets/portraits/lu_bu.webp",
@@ -168,7 +180,7 @@ function calculateCombatPower(general) {
   return Math.max(martial, intelligence);
 }
 
-const balancedCharacters = MARTIAL_ROSTER.map(([name, faction], martialIndex) => {
+const generatedCharacters = MARTIAL_ROSTER.map(([name, faction], martialIndex) => {
   const martialRank = martialIndex + 1;
   const martial = Number((100 - martialIndex * 0.5).toFixed(1));
   const override = PROFILE_OVERRIDES[name];
@@ -183,7 +195,107 @@ const balancedCharacters = MARTIAL_ROSTER.map(([name, faction], martialIndex) =>
     portrait: PORTRAIT_PATHS[name] ?? "",
     sourceIndex: martialIndex
   };
-}).sort((left, right) =>
+});
+
+function populationMean(characters, field) {
+  return characters.reduce((total, character) => total + character[field], 0) / characters.length;
+}
+
+function populationStandardDeviation(characters, field, mean) {
+  const variance = characters.reduce((total, character) => total + (character[field] - mean) ** 2, 0) / characters.length;
+  return Math.sqrt(variance);
+}
+
+const battleTypeBaselines = (() => {
+  const martialMean = populationMean(generatedCharacters, "martial");
+  const intelligenceMean = populationMean(generatedCharacters, "intelligence");
+  return Object.freeze({
+    martialMean,
+    intelligenceMean,
+    martialStandardDeviation: populationStandardDeviation(generatedCharacters, "martial", martialMean),
+    intelligenceStandardDeviation: populationStandardDeviation(generatedCharacters, "intelligence", intelligenceMean)
+  });
+})();
+
+// 全项目读取战斗属性的唯一入口；本属性目前只用于分类和展示。
+function getBattleType(character) {
+  if (!character || typeof character !== "object") throw new TypeError("计算战斗属性时缺少有效人物");
+  const martial = Number(character.martial);
+  const intelligence = Number(character.intelligence);
+  if (!Number.isFinite(martial) || !Number.isFinite(intelligence)) {
+    throw new TypeError(`${character.name || "未知人物"}缺少有效武力或智力`);
+  }
+
+  const martialZ = (martial - battleTypeBaselines.martialMean) / battleTypeBaselines.martialStandardDeviation;
+  const intelligenceZ = (intelligence - battleTypeBaselines.intelligenceMean) / battleTypeBaselines.intelligenceStandardDeviation;
+  const deltaZ = martialZ - intelligenceZ;
+  const averageAttribute = (martial + intelligence) / 2;
+  const calculatedType = averageAttribute >= 65 && deltaZ > -1.15 && deltaZ < 0.15
+    ? "防守"
+    : deltaZ >= 0 ? "强攻" : "谋略";
+  return BATTLE_TYPE_OVERRIDES[character.name] ?? calculatedType;
+}
+
+// 谋略克强攻、强攻克防守、防守克谋略；同类型不修正。
+function getTypeMultiplier(attackerType, opponentType) {
+  if (!BATTLE_TYPES.includes(attackerType) || !BATTLE_TYPES.includes(opponentType)) {
+    throw new RangeError("战斗属性只能是强攻、谋略或防守");
+  }
+  if (attackerType === opponentType) return 1;
+  const counteredType = { 谋略: "强攻", 强攻: "防守", 防守: "谋略" }[attackerType];
+  return counteredType === opponentType ? 1.06 : 0.94;
+}
+
+// 每次单挑结算的唯一实际战力入口。
+function calculateBattlePower(character, opponent) {
+  if (!opponent || typeof opponent !== "object") throw new TypeError("计算实际战力时缺少对手");
+  const multiplier = getTypeMultiplier(getBattleType(character), getBattleType(opponent));
+  return Number((calculateCombatPower(character) * multiplier).toFixed(2));
+}
+
+const UPSET_CONFIG = Object.freeze({
+  powerBoost: 1.15,
+  chances: Object.freeze([
+    Object.freeze({ maxGap: 0.05, probability: 0.12 }),
+    Object.freeze({ maxGap: 0.10, probability: 0.08 }),
+    Object.freeze({ maxGap: 0.20, probability: 0.04 }),
+    Object.freeze({ maxGap: Infinity, probability: 0.01 })
+  ])
+});
+
+// 自动比赛与玩家比赛共用一次抽取和同一结算结果。
+function resolveBattlePowerDuel(characterA, characterB, random = Math.random) {
+  if (typeof random !== "function") throw new TypeError("random必须是函数");
+  const normalPowerA = calculateBattlePower(characterA, characterB);
+  const normalPowerB = calculateBattlePower(characterB, characterA);
+  const strongerPower = Math.max(normalPowerA, normalPowerB);
+  const weakerPower = Math.min(normalPowerA, normalPowerB);
+  const underdogSide = normalPowerA === normalPowerB ? null : normalPowerA < normalPowerB ? "A" : "B";
+  const gapRatio = underdogSide ? (strongerPower - weakerPower) / strongerPower : 0;
+  const upsetChance = underdogSide
+    ? UPSET_CONFIG.chances.find((tier) => gapRatio <= tier.maxGap).probability
+    : 0;
+  const upsetTriggered = underdogSide !== null && random() < upsetChance;
+  const finalPowerA = Number((normalPowerA * (upsetTriggered && underdogSide === "A" ? UPSET_CONFIG.powerBoost : 1)).toFixed(2));
+  const finalPowerB = Number((normalPowerB * (upsetTriggered && underdogSide === "B" ? UPSET_CONFIG.powerBoost : 1)).toFixed(2));
+  return Object.freeze({
+    normalPowerA, normalPowerB, finalPowerA, finalPowerB,
+    underdogSide, gapRatio, upsetChance, upsetTriggered,
+    winnerSide: finalPowerA === finalPowerB ? null : finalPowerA > finalPowerB ? "A" : "B"
+  });
+}
+
+// 区分弱者获得临时加成和最终真正以弱胜强，供全部战报统一使用。
+function getUpsetAnnouncement(outcome) {
+  if (!outcome?.upsetTriggered) return null;
+  const completedUpset = outcome.winnerSide === outcome.underdogSide;
+  return Object.freeze(completedUpset
+    ? { completedUpset, headline: "爆冷！以弱胜强！", result: "以弱胜强！", boost: "爆发 +15%" }
+    : { completedUpset, headline: "爆发！绝地反击！", result: "绝地反击！", boost: "爆发 +15%" }
+  );
+}
+
+const balancedCharacters = generatedCharacters.sort((left, right) =>
   calculateCombatPower(right) - calculateCombatPower(left)
   || right.intelligence - left.intelligence
   || right.martial - left.martial
@@ -191,6 +303,13 @@ const balancedCharacters = MARTIAL_ROSTER.map(([name, faction], martialIndex) =>
 );
 
 window.calculateCombatPower = calculateCombatPower;
+window.getBattleType = getBattleType;
+window.getTypeMultiplier = getTypeMultiplier;
+window.calculateBattlePower = calculateBattlePower;
+window.resolveBattlePowerDuel = resolveBattlePowerDuel;
+window.getUpsetAnnouncement = getUpsetAnnouncement;
+window.UPSET_CONFIG = UPSET_CONFIG;
+window.BATTLE_TYPE_ICONS = BATTLE_TYPE_ICONS;
 window.CHARACTERS = Object.freeze(balancedCharacters.map((character, index) => {
   const rank = index + 1;
   const [tier, subTier] = tierFromRank(rank);
