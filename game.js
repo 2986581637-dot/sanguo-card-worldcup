@@ -52,7 +52,7 @@
 
   // 小组赛与全部淘汰赛统一使用的正式三阶段单场规则。
   const MATCH_RULES = Object.freeze({
-    version: 5,
+    version: 6,
     teamSize: 4,
     usePreMatchTeamPower: false,
     allowedAttribute: "type-adjusted-combat-power",
@@ -80,10 +80,11 @@
       randomModifier: "configured-underdog-upset-only"
     }),
     phaseThree: Object.freeze({
-      name: "最终幸存阵容总战力决胜",
+      name: "最后一轮",
       enterOnlyWhenBothTeamsHaveSurvivors: true,
       continueDuels: false,
-      score: "sum-of-survivors-combat-power",
+      duelWhenOneEach: true,
+      score: "sum-of-survivors-combat-power-when-multiple",
       tieBreak: Object.freeze([
         "highest-survivor-combat-power",
         "random-50-percent"
@@ -130,6 +131,7 @@
       martial: character.martial,
       intelligence: character.intelligence,
       power: calculateCombatPower(character),
+      effectivePower: calculateCombatPower(character),
       battleType,
       typeMultiplier,
       normalBattlePower: opponent ? calculateBattlePower(character, opponent) : calculateCombatPower(character),
@@ -361,21 +363,26 @@
       });
     }
 
-    const finalPowerA = survivorsA.reduce((total, character) => total + calculateCombatPower(character), 0);
-    const finalPowerB = survivorsB.reduce((total, character) => total + calculateCombatPower(character), 0);
-    const highestPowerA = Math.max(...survivorsA.map(calculateCombatPower));
-    const highestPowerB = Math.max(...survivorsB.map(calculateCombatPower));
+    const finalDuel = survivorsA.length === 1 && survivorsB.length === 1
+      ? resolveCombatDuel(survivorsA[0], survivorsB[0], teamA, teamB, 1, random) : null;
+    const finalPowerA = finalDuel ? finalDuel.fighterA.battlePower : survivorsA.reduce((total, character) => total + calculateCombatPower(character), 0);
+    const finalPowerB = finalDuel ? finalDuel.fighterB.battlePower : survivorsB.reduce((total, character) => total + calculateCombatPower(character), 0);
+    const highestPowerA = Math.max(...survivorsA.map((character) => calculateCombatPower(character)));
+    const highestPowerB = Math.max(...survivorsB.map((character) => calculateCombatPower(character)));
     let winningTeam;
-    let decision;
-    if (finalPowerA !== finalPowerB) {
+    let tieBreak = null;
+    const decision = finalDuel ? "normal-duel" : "combined-power";
+    if (finalDuel) {
+      winningTeam = finalDuel.winner?.side === "A" ? teamA : finalDuel.winner?.side === "B" ? teamB : random() < 0.5 ? teamA : teamB;
+      if (!finalDuel.winner) tieBreak = "random-50-percent";
+    } else if (finalPowerA !== finalPowerB) {
       winningTeam = finalPowerA > finalPowerB ? teamA : teamB;
-      decision = "final-power";
     } else if (highestPowerA !== highestPowerB) {
       winningTeam = highestPowerA > highestPowerB ? teamA : teamB;
-      decision = "highest-survivor-combat-power";
+      tieBreak = "highest-survivor-combat-power";
     } else {
       winningTeam = random() < 0.5 ? teamA : teamB;
-      decision = "random-50-percent";
+      tieBreak = "random-50-percent";
     }
 
     const phaseThree = Object.freeze({
@@ -386,7 +393,20 @@
       }),
       finalPower: Object.freeze({ A: finalPowerA, B: finalPowerB }),
       highestPower: Object.freeze({ A: highestPowerA, B: highestPowerB }),
-      decision
+      teamAPower: finalPowerA,
+      teamBPower: finalPowerB,
+      teamACount: survivorsA.length,
+      teamBCount: survivorsB.length,
+      battleType: `${survivorsA.length}v${survivorsB.length}`,
+      finalBattleType: `${survivorsA.length}v${survivorsB.length}`,
+      finalSurvivorsA: Object.freeze(survivorsA.map((character) => fighterSnapshot(character, teamA))),
+      finalSurvivorsB: Object.freeze(survivorsB.map((character) => fighterSnapshot(character, teamB))),
+      finalPowerA,
+      finalPowerB,
+      duel: finalDuel,
+      winner: winningTeam.name,
+      decision,
+      tieBreak
     });
 
     return Object.freeze({
@@ -540,7 +560,7 @@
   }
 
   function sumSurvivorPower(summary) {
-    return summary.members.reduce((total, fighter) => total + fighter.power, 0);
+    return summary.members.reduce((total, fighter) => total + (fighter.effectivePower ?? fighter.power), 0);
   }
 
   function playScheduledMatch(match, draw, random = Math.random) {
@@ -561,8 +581,8 @@
       throw new RangeError("战报胜者不属于本场比赛");
     }
     const survivors = getFinalSurvivors(battleRecord);
-    const powerA = sumSurvivorPower(survivors.A);
-    const powerB = sumSurvivorPower(survivors.B);
+    const powerA = battleRecord.phaseThree.skipped ? sumSurvivorPower(survivors.A) : battleRecord.phaseThree.finalPower.A;
+    const powerB = battleRecord.phaseThree.skipped ? sumSurvivorPower(survivors.B) : battleRecord.phaseThree.finalPower.B;
     match.status = "completed";
     match.winnerTeamId = battleRecord.winner.teamId;
     match.loserTeamId = battleRecord.winner.teamId === teamA.id ? teamB.id : teamA.id;
@@ -990,13 +1010,14 @@
     const group = draw.groups.find((item) => item.id === state.activeGroup) || draw.groups[0];
     state.activeGroup = group.id;
     const matches = getGroupMatches(tournament, group.id);
-    const canPlay = tournament.stage === TOURNAMENT_STAGES.GROUP_STAGE;
+    const playerJourneyActive = Boolean(window.playerMode?.getState().playerTeamId);
+    const canPlay = tournament.stage === TOURNAMENT_STAGES.GROUP_STAGE && !playerJourneyActive;
     cupContent.innerHTML = `
       ${sectionHeading("32队 · 八组单循环", "小组赛", `已完成 ${completed} / 48 场；每组6场，每队严格3场。`)}
       <div class="tournament-controls">
         <button type="button" data-action="simulate-next-group" ${canPlay ? "" : "disabled"}>模拟下一场</button>
         <button type="button" data-action="simulate-all-group" ${canPlay ? "" : "disabled"}>模拟全部小组赛</button>
-        ${canPlay ? "" : `<span>小组赛已完成，16支球队晋级。</span>`}
+        ${canPlay ? "" : `<span>${playerJourneyActive && tournament.stage === TOURNAMENT_STAGES.GROUP_STAGE ? "玩家模式请在「我的征程」出战；其他比赛会在赛后自动完成。" : "小组赛已完成，16支球队晋级。"}</span>`}
       </div>
       <div class="group-tabs">${draw.groups.map((item) => `<button type="button" data-group-id="${item.id}" class="${item.id === group.id ? "is-active" : ""}">${item.name}</button>`).join("")}</div>
       <div class="group-stage-layout">
@@ -1021,13 +1042,14 @@
       return;
     }
     const completed = round.matches.filter((match) => match.status === "completed").length;
-    const canPlay = state.tournament.stage === round.stage;
+    const playerJourneyActive = Boolean(window.playerMode?.getState().playerTeamId);
+    const canPlay = state.tournament.stage === round.stage && !playerJourneyActive;
     cupContent.innerHTML = `
       ${sectionHeading("固定对阵树", round.label, `已完成 ${completed} / ${round.matches.length} 场；所有比赛统一采用三阶段单场规则。`)}
       <div class="tournament-controls">
         <button type="button" data-action="simulate-next-round" data-round-key="${roundKey}" ${canPlay ? "" : "disabled"}>模拟下一场</button>
         <button type="button" data-action="simulate-all-round" data-round-key="${roundKey}" ${canPlay ? "" : "disabled"}>模拟本轮全部</button>
-        ${canPlay ? "" : `<span>${completed === round.matches.length ? "本轮已结束" : "请先完成前一阶段"}</span>`}
+        ${canPlay ? "" : `<span>${playerJourneyActive && state.tournament.stage === round.stage ? "玩家模式请在「我的征程」出战；其他比赛会在赛后自动完成。" : completed === round.matches.length ? "本轮已结束" : "请先完成前一阶段"}</span>`}
       </div>
       <div class="knockout-matches">${round.matches.map((match) => matchMarkup(match, state.worldCup)).join("")}</div>
       ${roundKey === "semiFinals" && state.tournament.knockout.semiFinalWinners.length ? `
@@ -1129,6 +1151,10 @@
   }
 
   function runTournamentAction(action, roundKey = null) {
+    if (window.playerMode?.getState().playerTeamId) {
+      showToast("玩家模式请在「我的征程」出战");
+      return;
+    }
     try {
       let match = null;
       if (action === "simulate-next-group") {
@@ -1205,18 +1231,18 @@
   }
 
   function duelRecordMarkup(duel) {
-    const result = duel.mutualDestruction ? "实际战力相同 · 同归于尽" : `${duel.winner.name}胜`;
+    const result = duel.evaded ? "闪避 · 双方存活" : duel.mutualDestruction ? "实际战力相同 · 同归于尽" : `${duel.winner.name}胜`;
     const typeA = getBattleType(duel.fighterA);
     const typeB = getBattleType(duel.fighterB);
     const effectLabel = (fighter) => fighter.typeMultiplier > 1 ? "属性克制 +6%" : fighter.typeMultiplier < 1 ? "受到克制 -6%" : "同类型 ±0%";
-    const upsetAnnouncement = getUpsetAnnouncement(duel.upset);
+    const upsetAnnouncement = duel.evaded ? null : getUpsetAnnouncement(duel.upset);
     const upsetLabel = upsetAnnouncement ? `<em>${upsetAnnouncement.headline}</em>` : "";
     return `<div class="battle-duel ${duel.upset?.upsetTriggered ? "is-upset" : ""}"><span>第${duel.duelNumber}场</span><b>${duel.fighterA.name} ${duel.fighterA.battlePower}<small>${BATTLE_TYPE_ICONS[typeA]} ${typeA} · ${effectLabel(duel.fighterA)}</small></b><i>VS</i><b>${duel.fighterB.name} ${duel.fighterB.battlePower}<small>${BATTLE_TYPE_ICONS[typeB]} ${typeB} · ${effectLabel(duel.fighterB)}</small></b><strong>${upsetLabel}${result}</strong></div>`;
   }
 
   function survivorNames(summary) {
     return summary.members.length
-      ? summary.members.map((fighter) => `${fighter.name} ${fighter.power}`).join("、")
+      ? summary.members.map((fighter) => `${fighter.name} ${fighter.effectivePower ?? fighter.power}`).join("、")
       : "无";
   }
 
@@ -1233,7 +1259,9 @@
          <p>轮空：A队 ${survivorNames({ members: record.phaseTwo.byes.A })}；B队 ${survivorNames({ members: record.phaseTwo.byes.B })}</p>`;
     const phaseThree = record.phaseThree.skipped
       ? `<p class="battle-skipped">第三阶段跳过：${record.phaseThree.reason}</p>`
-      : `<div class="battle-final-power"><span>${teamA.name}<b>${record.phaseThree.finalPower.A}</b></span><i>最终剩余总战力</i><span>${teamB.name}<b>${record.phaseThree.finalPower.B}</b></span></div>`;
+      : record.phaseThree.finalBattleType === "1v1"
+        ? `<div class="battle-duels">${duelRecordMarkup(record.phaseThree.duel)}</div>`
+        : `<div class="battle-final-power"><span>${teamA.name}<b>${record.phaseThree.finalPower.A}</b></span><i>合击战力</i><span>${teamB.name}<b>${record.phaseThree.finalPower.B}</b></span></div>`;
 
     dialog.classList.remove("team-dialog");
     dialog.classList.add("battle-dialog");
@@ -1241,11 +1269,12 @@
     dialogContent.innerHTML = `
       <div class="battle-dialog-layout">
         <p>完整战斗记录</p><h3 id="battle-dialog-name">${teamA.name} <i>VS</i> ${teamB.name}</h3>
+        ${record.selectedTactic ? `<section><h4>本场战术 · ${record.selectedTactic}</h4><p>状态：${record.tacticUsed ? "已使用" : "未使用"}</p>${record.tacticEvents?.map((event) => `<p>${event.phase}${event.duelNumber ? ` · 第${event.duelNumber}场` : ""}：${event.members ? event.members.map((item) => `${item.character} ${item.originalPower}→${item.effectivePower}`).join("、") : event.character ? `${event.character}${event.opponent ? ` 对 ${event.opponent}` : ""}${event.originalPower != null && event.effectivePower != null ? ` ${event.originalPower}→${event.effectivePower}` : ""}` : `${event.originalPower}→${event.effectivePower}`}${event.avoidedElimination ? " · 双方存活" : ""}</p>`).join("") || ""}</section>` : ""}
         <section><h4>第一阶段 · 四场跨队单挑</h4><div class="battle-duels">${record.phaseOne.duels.map(duelRecordMarkup).join("")}</div>
           <p>A队幸存 ${record.phaseOne.survivors.A.count}人：${survivorNames(record.phaseOne.survivors.A)}</p>
           <p>B队幸存 ${record.phaseOne.survivors.B.count}人：${survivorNames(record.phaseOne.survivors.B)}</p></section>
         <section><h4>第二阶段 · 幸存者再次捉对</h4>${phaseTwo}</section>
-        <section><h4>第三阶段 · 最终幸存阵容</h4>${phaseThree}
+        <section><h4>最后一轮 · ${record.phaseThree.skipped ? "未进行" : record.phaseThree.finalBattleType === "1v1" ? "武将单挑" : "幸存武将合击"}</h4>${phaseThree}
           <p>A队最终幸存：${survivorNames(finalSurvivors.A)}</p><p>B队最终幸存：${survivorNames(finalSurvivors.B)}</p></section>
         <div class="battle-winner">最终获胜：<strong>${getTeamById(state.worldCup, record.winner.teamId).name}</strong></div>
       </div>`;

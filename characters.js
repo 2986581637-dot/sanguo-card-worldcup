@@ -247,10 +247,11 @@ function getTypeMultiplier(attackerType, opponentType) {
 }
 
 // 每次单挑结算的唯一实际战力入口。
-function calculateBattlePower(character, opponent) {
+function calculateBattlePower(character, opponent, effectivePower = calculateCombatPower(character)) {
   if (!opponent || typeof opponent !== "object") throw new TypeError("计算实际战力时缺少对手");
+  if (!Number.isFinite(effectivePower) || effectivePower < 0) throw new RangeError("临时战力必须是非负有限数值");
   const multiplier = getTypeMultiplier(getBattleType(character), getBattleType(opponent));
-  return Number((calculateCombatPower(character) * multiplier).toFixed(2));
+  return Number((effectivePower * multiplier).toFixed(2));
 }
 
 const UPSET_CONFIG = Object.freeze({
@@ -264,10 +265,13 @@ const UPSET_CONFIG = Object.freeze({
 });
 
 // 自动比赛与玩家比赛共用一次抽取和同一结算结果。
-function resolveBattlePowerDuel(characterA, characterB, random = Math.random) {
+function resolveBattlePowerDuel(characterA, characterB, random = Math.random, effectivePower = null) {
   if (typeof random !== "function") throw new TypeError("random必须是函数");
-  const normalPowerA = calculateBattlePower(characterA, characterB);
-  const normalPowerB = calculateBattlePower(characterB, characterA);
+  const baseA = effectivePower?.A ?? calculateCombatPower(characterA);
+  const baseB = effectivePower?.B ?? calculateCombatPower(characterB);
+  if (!Number.isFinite(baseA) || !Number.isFinite(baseB) || baseA < 0 || baseB < 0) throw new RangeError("临时战力必须是非负有限数值");
+  const normalPowerA = calculateBattlePower(characterA, characterB, baseA);
+  const normalPowerB = calculateBattlePower(characterB, characterA, baseB);
   const strongerPower = Math.max(normalPowerA, normalPowerB);
   const weakerPower = Math.min(normalPowerA, normalPowerB);
   const underdogSide = normalPowerA === normalPowerB ? null : normalPowerA < normalPowerB ? "A" : "B";

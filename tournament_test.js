@@ -102,7 +102,16 @@ function validateBattle(record) {
   if (!record.phaseThree.skipped) {
     const totalA = record.phaseThree.survivors.A.members.reduce((sum, fighter) => sum + fighter.power, 0);
     const totalB = record.phaseThree.survivors.B.members.reduce((sum, fighter) => sum + fighter.power, 0);
-    assert(record.phaseThree.finalPower.A === totalA && record.phaseThree.finalPower.B === totalB, "第三阶段总战力计算错误");
+    if (record.phaseThree.finalBattleType === "1v1") {
+      assert(record.phaseThree.decision === "normal-duel" && record.phaseThree.duel, "最终1v1未调用正常单挑");
+      assert(record.phaseThree.finalPower.A === record.phaseThree.duel.fighterA.battlePower && record.phaseThree.finalPower.B === record.phaseThree.duel.fighterB.battlePower, "最终1v1战力记录错误");
+    } else {
+      assert(record.phaseThree.decision === "combined-power", "多人最终战未使用合击判定");
+      assert(record.phaseThree.finalPower.A === totalA && record.phaseThree.finalPower.B === totalB, "第三阶段总战力计算错误");
+    }
+    assert(record.phaseThree.teamAPower === record.phaseThree.finalPower.A && record.phaseThree.teamBPower === record.phaseThree.finalPower.B, "电脑比赛最终战力记录错误");
+    assert(record.phaseThree.battleType === `${record.phaseThree.teamACount}v${record.phaseThree.teamBCount}`, "电脑比赛合战人数记录错误");
+    assert(record.phaseThree.winner === record.winner.teamName, "电脑比赛合战胜者记录错误");
   }
   assert(record.winner && record.winner.teamId, "比赛没有唯一胜者");
 }

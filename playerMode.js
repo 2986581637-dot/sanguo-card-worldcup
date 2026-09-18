@@ -9,6 +9,7 @@
   const resolveBattlePowerDuel = window.resolveBattlePowerDuel;
   const getUpsetAnnouncement = window.getUpsetAnnouncement;
   const selectAICombatant = app.selectAICombatant;
+  const tactics = window.TACTICS;
   const content = document.querySelector("#cup-content");
   const mode = {
     playerTeamId: null,
@@ -17,7 +18,8 @@
     recentResults: [],
     random: Math.random,
     journeyEnded: false,
-    pauseMenuOpen: false
+    pauseMenuOpen: false,
+    tacticOptions: []
   };
 
   const STAGE_NAMES = Object.freeze({
@@ -68,6 +70,7 @@
     mode.recentResults = [];
     mode.journeyEnded = false;
     mode.pauseMenuOpen = false;
+    mode.tacticOptions = [];
     return mode.playerTeamId;
   }
 
@@ -101,7 +104,7 @@
       : STAGE_NAMES[match.stage];
   }
 
-  function fighterSnapshot(character, team, side, opponent = null, duelPower = null) {
+  function fighterSnapshot(character, team, side, opponent = null, duelPower = null, effectivePower = null) {
     const battleType = getBattleType(character);
     const typeMultiplier = opponent ? getTypeMultiplier(battleType, getBattleType(opponent)) : 1;
     return {
@@ -112,24 +115,39 @@
       martial: character.martial,
       intelligence: character.intelligence,
       power: calculateCombatPower(character),
+      effectivePower: effectivePower ?? calculateCombatPower(character),
       battleType,
       typeMultiplier,
-      normalBattlePower: opponent ? calculateBattlePower(character, opponent) : calculateCombatPower(character),
-      battlePower: duelPower ?? (opponent ? calculateBattlePower(character, opponent) : calculateCombatPower(character))
+      normalBattlePower: opponent ? calculateBattlePower(character, opponent, effectivePower ?? calculateCombatPower(character)) : (effectivePower ?? calculateCombatPower(character)),
+      battlePower: duelPower ?? (opponent ? calculateBattlePower(character, opponent, effectivePower ?? calculateCombatPower(character)) : (effectivePower ?? calculateCombatPower(character)))
     };
   }
 
-  function survivorSummary(team, side, names) {
+  function survivorSummary(team, side, names, battle = null) {
     return {
       teamId: team.id,
       teamName: team.name,
       side,
       count: names.length,
-      members: names.map((name) => fighterSnapshot(getCharacter(name), team, side))
+      members: names.map((name) => fighterSnapshot(getCharacter(name), team, side, null, null, battle ? effectivePower(battle, name, side) : null))
     };
   }
 
-  function createBattle(match) {
+  function effectivePower(battle, name, side, duelBonus = 0) {
+    const original = calculateCombatPower(getCharacter(name));
+    const wholeMatchBonus = battle.selectedTactic === "全军振奋" && side === battle.playerSide ? 2 : 0;
+    return original + wholeMatchBonus + duelBonus;
+  }
+
+  function recordTactic(battle, event) {
+    if (battle.tacticUsed) return false;
+    battle.tacticUsed = true;
+    battle.tacticEvents.push({ tactic: battle.selectedTactic, ...event });
+    battle.tacticMessage = battle.selectedTactic;
+    return true;
+  }
+
+  function createBattle(match, selectedTactic) {
     const { worldCup } = gameState();
     const teamA = app.getTeamById(worldCup, match.teamAId);
     const teamB = app.getTeamById(worldCup, match.teamBId);
@@ -138,6 +156,12 @@
       teamA,
       teamB,
       playerSide: teamA.id === mode.playerTeamId ? "A" : "B",
+      selectedTactic,
+      tacticUsed: false,
+      tacticEvents: [],
+      tacticArmed: false,
+      tacticMessage: "",
+      pendingEvade: null,
       phase: "PHASE_ONE",
       awaitingContinue: false,
       playerSelection: null,
@@ -154,18 +178,35 @@
         survivorsB: []
       },
       phaseTwo: null,
+      phaseThreePresentation: null,
       pendingRecord: null
     };
+    if (selectedTactic === "全军振奋") {
+      const playerTeam = battle.playerSide === "A" ? teamA : teamB;
+      recordTactic(battle, { phase: "MATCH_START", members: playerTeam.members.map((name) => ({ character: name, originalPower: getCharacter(name).power, effectivePower: getCharacter(name).power + 2 })) });
+    }
     commitAISelection(battle);
     return battle;
   }
 
   function startNextPlayerMatch() {
+    if (mode.screen === "TACTIC_SELECT" || mode.screen === "BATTLE") return;
     const match = playerMatchInCurrentStage();
     if (!match) return;
-    mode.battle = createBattle(match);
-    mode.screen = "BATTLE";
+    mode.battle = null;
+    mode.tacticOptions = window.drawTactics(mode.random);
+    mode.screen = "TACTIC_SELECT";
     mode.pauseMenuOpen = false;
+    render();
+  }
+
+  function chooseTactic(name) {
+    if (mode.screen !== "TACTIC_SELECT" || !mode.tacticOptions.some((item) => item.name === name)) return;
+    const match = playerMatchInCurrentStage();
+    if (!match) return;
+    mode.battle = createBattle(match, name);
+    mode.tacticOptions = [];
+    mode.screen = "BATTLE";
     render();
   }
 
@@ -183,7 +224,7 @@
 
   function restartBattle() {
     if (!mode.battle) return;
-    mode.battle = createBattle(mode.battle.match);
+    mode.battle = createBattle(mode.battle.match, mode.battle.selectedTactic);
     mode.pauseMenuOpen = false;
     mode.screen = "BATTLE";
     render();
@@ -202,12 +243,47 @@
     render();
   }
 
-  function resolveDuel(nameA, nameB, battle, duelNumber) {
+  function livingCount(battle, side) {
+    const team = side === "A" ? battle.teamA : battle.teamB;
+    return team.members.filter((name) => !battle.eliminated.has(name)).length;
+  }
+
+  function canUseBacksToWall(battle) {
+    const enemySide = battle.playerSide === "A" ? "B" : "A";
+    return battle.selectedTactic === "背水一战" && !battle.tacticUsed
+      && livingCount(battle, battle.playerSide) < livingCount(battle, enemySide);
+  }
+
+  function useTacticBeforeDuel() {
+    const battle = mode.battle;
+    if (!battle || mode.pauseMenuOpen || battle.awaitingContinue || battle.pendingEvade || !["PHASE_ONE", "PHASE_TWO"].includes(battle.phase) || battle.tacticUsed) return;
+    if (battle.selectedTactic === "侦察") {
+      const opponent = battle.playerSide === "A" ? battle.teamB : battle.teamA;
+      const candidates = opponent.members.filter((name) => !battle.eliminated.has(name)
+        && !battle.revealedOpponent.has(name) && name !== battle.pendingAIChoice?.name);
+      if (!candidates.length) return;
+      const name = candidates[randomIndex(candidates.length)];
+      battle.revealedOpponent.add(name);
+      recordTactic(battle, { phase: battle.phase, character: name, originalPower: getCharacter(name).power, tier: `${getCharacter(name).tier}${getCharacter(name).subTier}` });
+      battle.tacticMessage = `侦察成功：${name} · 战力 ${getCharacter(name).power} · ${getCharacter(name).tier}${getCharacter(name).subTier}`;
+    } else if (battle.selectedTactic === "背水一战" && canUseBacksToWall(battle) && battle.playerSelection) {
+      battle.tacticArmed = true;
+      battle.tacticMessage = `背水一战待发动：${battle.playerSelection} +6`;
+    } else if (battle.selectedTactic === "奇兵突袭" && battle.playerSelection) {
+      battle.tacticArmed = true;
+      battle.tacticMessage = "奇兵突袭已声明，翻牌后判断战力差距";
+    }
+    render();
+  }
+
+  function resolveDuel(nameA, nameB, battle, duelNumber, bonus = 0) {
     const characterA = getCharacter(nameA);
     const characterB = getCharacter(nameB);
-    const outcome = resolveBattlePowerDuel(characterA, characterB, mode.random);
-    const fighterA = fighterSnapshot(characterA, battle.teamA, "A", characterB, outcome.finalPowerA);
-    const fighterB = fighterSnapshot(characterB, battle.teamB, "B", characterA, outcome.finalPowerB);
+    const powerA = effectivePower(battle, nameA, "A", battle.playerSide === "A" ? bonus : 0);
+    const powerB = effectivePower(battle, nameB, "B", battle.playerSide === "B" ? bonus : 0);
+    const outcome = resolveBattlePowerDuel(characterA, characterB, mode.random, { A: powerA, B: powerB });
+    const fighterA = fighterSnapshot(characterA, battle.teamA, "A", characterB, outcome.finalPowerA, powerA);
+    const fighterB = fighterSnapshot(characterB, battle.teamB, "B", characterA, outcome.finalPowerB, powerB);
     const tied = outcome.winnerSide === null;
     const aWins = outcome.winnerSide === "A";
     const duel = {
@@ -219,17 +295,44 @@
       mutualDestruction: tied,
       upset: outcome
     };
-    duel.eliminated.forEach((fighter) => battle.eliminated.add(fighter.name));
     return duel;
+  }
+
+  function commitDuel(battle, duel) {
+    const phase = battle.phase === "PHASE_ONE" ? battle.phaseOne : battle.phaseTwo;
+    phase.duels.push(duel);
+    duel.eliminated.forEach((fighter) => battle.eliminated.add(fighter.name));
+    battle.pendingEvade = null;
+    battle.lastDuel = duel;
+    battle.awaitingContinue = true;
+  }
+
+  function resolveEvade(useEvade) {
+    const battle = mode.battle;
+    const duel = battle?.pendingEvade;
+    if (!duel || mode.pauseMenuOpen) return;
+    if (useEvade) {
+      const player = battle.playerSide === "A" ? duel.fighterA : duel.fighterB;
+      const opponent = battle.playerSide === "A" ? duel.fighterB : duel.fighterA;
+      recordTactic(battle, { phase: battle.phase, duelNumber: duel.duelNumber, character: player.name, opponent: opponent.name, originalPower: player.power, effectivePower: player.effectivePower, avoidedElimination: true });
+      duel.evaded = true;
+      duel.winner = null;
+      duel.eliminated = [];
+      duel.mutualDestruction = false;
+      battle.tacticMessage = `闪避！${player.name}与${opponent.name}本场无人阵亡`;
+    }
+    commitDuel(battle, duel);
+    render();
   }
 
   function choosePlayerFighter(name) {
     const battle = mode.battle;
-    if (!battle || battle.awaitingContinue || !["PHASE_ONE", "PHASE_TWO"].includes(battle.phase)) return;
+    if (!battle || mode.pauseMenuOpen || battle.awaitingContinue || battle.pendingEvade || !["PHASE_ONE", "PHASE_TWO"].includes(battle.phase)) return;
     const phase = battle.phase === "PHASE_ONE" ? battle.phaseOne : battle.phaseTwo;
     const playerKey = battle.playerSide === "A" ? "availableA" : "availableB";
     if (!phase[playerKey].includes(name)) return;
     battle.playerSelection = name;
+    if (battle.tacticArmed) battle.tacticMessage = `${battle.selectedTactic}已准备：${name}`;
     render();
   }
 
@@ -271,7 +374,7 @@
 
   function confirmPlayerFighter() {
     const battle = mode.battle;
-    if (!battle?.playerSelection || battle.awaitingContinue) return;
+    if (!battle?.playerSelection || mode.pauseMenuOpen || battle.awaitingContinue || battle.pendingEvade) return;
     const phase = battle.phase === "PHASE_ONE" ? battle.phaseOne : battle.phaseTwo;
     const playerKey = battle.playerSide === "A" ? "availableA" : "availableB";
     const opponentKey = battle.playerSide === "A" ? "availableB" : "availableA";
@@ -285,21 +388,35 @@
     phase[opponentKey].splice(phase[opponentKey].indexOf(opponentName), 1);
     const nameA = battle.playerSide === "A" ? playerName : opponentName;
     const nameB = battle.playerSide === "B" ? playerName : opponentName;
-    const duel = resolveDuel(nameA, nameB, battle, phase.duels.length + 1);
-    phase.duels.push(duel);
+    const baseGap = Math.abs(getCharacter(playerName).power - getCharacter(opponentName).power);
+    let bonus = 0;
+    if (battle.tacticArmed && !battle.tacticUsed && battle.selectedTactic === "背水一战" && canUseBacksToWall(battle)) bonus = 6;
+    if (battle.tacticArmed && !battle.tacticUsed && battle.selectedTactic === "奇兵突袭" && baseGap <= 5) bonus = 5;
+    if (bonus) {
+      recordTactic(battle, { phase: battle.phase, duelNumber: phase.duels.length + 1, character: playerName, opponent: opponentName,
+        originalPower: getCharacter(playerName).power, effectivePower: getCharacter(playerName).power + bonus });
+      battle.tacticMessage = `${battle.selectedTactic}！${playerName} ${getCharacter(playerName).power} → ${getCharacter(playerName).power + bonus}`;
+    } else if (battle.tacticArmed && battle.selectedTactic === "奇兵突袭") {
+      battle.tacticMessage = `奇兵突袭未触发：基础战力差 ${baseGap} > 5，战术仍可使用`;
+    }
+    battle.tacticArmed = false;
+    const duel = resolveDuel(nameA, nameB, battle, phase.duels.length + 1, bonus);
     battle.revealedOpponent.add(opponentName);
     battle.playerSelection = null;
     battle.lastAIStrategy = aiChoice.strategy;
     battle.pendingAIChoice = null;
     battle.lastDuel = duel;
-    battle.awaitingContinue = true;
+    const playerLoses = duel.winner?.side !== battle.playerSide && duel.eliminated.some((fighter) => fighter.side === battle.playerSide);
+    const canEvade = battle.selectedTactic === "闪避" && !battle.tacticUsed && playerLoses && baseGap <= 5;
+    if (canEvade) battle.pendingEvade = duel;
+    else commitDuel(battle, duel);
     render();
   }
 
   function finishPhaseOne() {
     const battle = mode.battle;
-    battle.phaseOne.survivorsA = battle.phaseOne.duels.filter((duel) => duel.winner?.side === "A").map((duel) => duel.winner.name);
-    battle.phaseOne.survivorsB = battle.phaseOne.duels.filter((duel) => duel.winner?.side === "B").map((duel) => duel.winner.name);
+    battle.phaseOne.survivorsA = battle.phaseOne.duels.flatMap((duel) => duel.evaded ? [duel.fighterA.name] : duel.winner?.side === "A" ? [duel.winner.name] : []);
+    battle.phaseOne.survivorsB = battle.phaseOne.duels.flatMap((duel) => duel.evaded ? [duel.fighterB.name] : duel.winner?.side === "B" ? [duel.winner.name] : []);
     if (!battle.phaseOne.survivorsA.length || !battle.phaseOne.survivorsB.length) {
       prepareBattleResult("phase-one", battle.phaseOne.survivorsA, battle.phaseOne.survivorsB);
       return;
@@ -331,11 +448,11 @@
     phase.byesB = [...phase.availableB];
     phase.survivorsA = [
       ...phase.byesA,
-      ...phase.duels.filter((duel) => duel.winner?.side === "A").map((duel) => duel.winner.name)
+      ...phase.duels.flatMap((duel) => duel.evaded ? [duel.fighterA.name] : duel.winner?.side === "A" ? [duel.winner.name] : [])
     ];
     phase.survivorsB = [
       ...phase.byesB,
-      ...phase.duels.filter((duel) => duel.winner?.side === "B").map((duel) => duel.winner.name)
+      ...phase.duels.flatMap((duel) => duel.evaded ? [duel.fighterB.name] : duel.winner?.side === "B" ? [duel.winner.name] : [])
     ];
     prepareBattleResult("phase-two", phase.survivorsA, phase.survivorsB);
   }
@@ -360,17 +477,67 @@
     render();
   }
 
+  function advancePhaseThree() {
+    const battle = mode.battle;
+    if (battle?.phase !== "PHASE_THREE" || mode.pauseMenuOpen) return;
+    const presentation = battle.phaseThreePresentation;
+    const multiple = battle.finalSurvivorsA.length > 1 || battle.finalSurvivorsB.length > 1;
+    if (presentation.step === "ready") presentation.step = "lineup";
+    else if (presentation.step === "lineup") presentation.step = "power";
+    else if (presentation.step === "power") presentation.step = multiple ? "gather" : "clash";
+    else if (presentation.step === "gather") presentation.step = "totals";
+    else if (presentation.step === "totals") presentation.step = "clash";
+    else if (presentation.step === "clash") presentation.step = "outcome";
+    else if (presentation.step === "outcome") battle.phase = "MATCH_RESULT";
+    render();
+  }
+
   function decideWinner(teamA, teamB, survivorsA, survivorsB) {
-    const totalA = survivorsA.reduce((sum, name) => sum + calculateCombatPower(getCharacter(name)), 0);
-    const totalB = survivorsB.reduce((sum, name) => sum + calculateCombatPower(getCharacter(name)), 0);
-    const highA = survivorsA.length ? Math.max(...survivorsA.map((name) => calculateCombatPower(getCharacter(name)))) : 0;
-    const highB = survivorsB.length ? Math.max(...survivorsB.map((name) => calculateCombatPower(getCharacter(name)))) : 0;
+    const battle = mode.battle;
+    const bonus = battle.selectedTactic === "军心振奋" && battle.tacticUsed ? 6 : 0;
+    const highA = survivorsA.length ? Math.max(...survivorsA.map((name) => effectivePower(battle, name, "A"))) : 0;
+    const highB = survivorsB.length ? Math.max(...survivorsB.map((name) => effectivePower(battle, name, "B"))) : 0;
+    if (survivorsA.length === 1 && survivorsB.length === 1) {
+      const duel = resolveDuel(survivorsA[0], survivorsB[0], battle, 1, bonus);
+      const winningTeam = duel.winner?.side === "A" ? teamA : duel.winner?.side === "B" ? teamB : mode.random() < 0.5 ? teamA : teamB;
+      return { winningTeam, decision: "normal-duel", tieBreak: duel.winner ? null : "random-50-percent",
+        totalA: duel.fighterA.battlePower, totalB: duel.fighterB.battlePower, highA, highB, duel };
+    }
+    const totalA = survivorsA.reduce((sum, name) => sum + effectivePower(battle, name, "A"), 0) + (battle.playerSide === "A" ? bonus : 0);
+    const totalB = survivorsB.reduce((sum, name) => sum + effectivePower(battle, name, "B"), 0) + (battle.playerSide === "B" ? bonus : 0);
     if (!survivorsA.length && !survivorsB.length) return { winningTeam: mode.random() < 0.5 ? teamA : teamB, decision: "mutual-annihilation-random", totalA, totalB, highA, highB };
     if (!survivorsA.length) return { winningTeam: teamB, decision: "opponent-eliminated", totalA, totalB, highA, highB };
     if (!survivorsB.length) return { winningTeam: teamA, decision: "opponent-eliminated", totalA, totalB, highA, highB };
-    if (totalA !== totalB) return { winningTeam: totalA > totalB ? teamA : teamB, decision: "final-power", totalA, totalB, highA, highB };
-    if (highA !== highB) return { winningTeam: highA > highB ? teamA : teamB, decision: "highest-survivor-combat-power", totalA, totalB, highA, highB };
-    return { winningTeam: mode.random() < 0.5 ? teamA : teamB, decision: "random-50-percent", totalA, totalB, highA, highB };
+    if (totalA !== totalB) return { winningTeam: totalA > totalB ? teamA : teamB, decision: "combined-power", totalA, totalB, highA, highB, tieBreak: null };
+    if (highA !== highB) return { winningTeam: highA > highB ? teamA : teamB, decision: "combined-power", totalA, totalB, highA, highB, tieBreak: "highest-survivor-combat-power" };
+    return { winningTeam: mode.random() < 0.5 ? teamA : teamB, decision: "combined-power", totalA, totalB, highA, highB, tieBreak: "random-50-percent" };
+  }
+
+  function useMoraleTactic() {
+    const battle = mode.battle;
+    if (!battle || battle.phase !== "PHASE_THREE" || battle.selectedTactic !== "军心振奋" || battle.tacticUsed || mode.pauseMenuOpen) return;
+    const names = battle.playerSide === "A" ? battle.finalSurvivorsA : battle.finalSurvivorsB;
+    const originalPower = names.reduce((sum, name) => sum + getCharacter(name).power, 0);
+    recordTactic(battle, { phase: "PHASE_THREE", originalPower, effectivePower: originalPower + 6, teamBonus: 6 });
+    battle.tacticMessage = names.length === 1 && battle.finalSurvivorsA.length === 1 && battle.finalSurvivorsB.length === 1 ? `军心振奋！${names[0]} 战力 +6` : `军心振奋！${originalPower} + 战术 6 = ${originalPower + 6}`;
+    const outcome = decideWinner(battle.teamA, battle.teamB, battle.finalSurvivorsA, battle.finalSurvivorsB);
+    const phaseThree = battle.pendingRecord.phaseThree;
+    phaseThree.finalPower = { A: outcome.totalA, B: outcome.totalB };
+    phaseThree.teamAPower = outcome.totalA;
+    phaseThree.teamBPower = outcome.totalB;
+    phaseThree.finalPowerA = outcome.totalA;
+    phaseThree.finalPowerB = outcome.totalB;
+    phaseThree.winner = outcome.winningTeam.name;
+    phaseThree.decision = outcome.decision;
+    phaseThree.tieBreak = outcome.tieBreak ?? null;
+    phaseThree.duel = outcome.duel ?? null;
+    phaseThree.survivors = { A: survivorSummary(battle.teamA, "A", battle.finalSurvivorsA, battle), B: survivorSummary(battle.teamB, "B", battle.finalSurvivorsB, battle) };
+    phaseThree.finalSurvivorsA = outcome.duel ? [outcome.duel.fighterA] : phaseThree.survivors.A.members;
+    phaseThree.finalSurvivorsB = outcome.duel ? [outcome.duel.fighterB] : phaseThree.survivors.B.members;
+    battle.pendingRecord.winner = { teamId: outcome.winningTeam.id, teamName: outcome.winningTeam.name,
+      side: outcome.winningTeam.id === battle.teamA.id ? "A" : "B", reason: outcome.decision };
+    battle.pendingRecord.tacticUsed = true;
+    render();
   }
 
   function prepareBattleResult(endedAfter, survivorsA, survivorsB) {
@@ -381,8 +548,8 @@
       duelCount: 4,
       duels: battle.phaseOne.duels,
       survivors: {
-        A: survivorSummary(battle.teamA, "A", battle.phaseOne.survivorsA),
-        B: survivorSummary(battle.teamB, "B", battle.phaseOne.survivorsB)
+        A: survivorSummary(battle.teamA, "A", battle.phaseOne.survivorsA, battle),
+        B: survivorSummary(battle.teamB, "B", battle.phaseOne.survivorsB, battle)
       }
     };
     const phaseTwoRecord = endedAfter === "phase-one"
@@ -397,8 +564,8 @@
           },
           duels: battle.phaseTwo.duels,
           survivors: {
-            A: survivorSummary(battle.teamA, "A", survivorsA),
-            B: survivorSummary(battle.teamB, "B", survivorsB)
+            A: survivorSummary(battle.teamA, "A", survivorsA, battle),
+            B: survivorSummary(battle.teamB, "B", survivorsB, battle)
           }
         };
     const bothAlive = survivorsA.length > 0 && survivorsB.length > 0;
@@ -406,11 +573,24 @@
       ? {
           skipped: false,
           survivors: {
-            A: survivorSummary(battle.teamA, "A", survivorsA),
-            B: survivorSummary(battle.teamB, "B", survivorsB)
+            A: survivorSummary(battle.teamA, "A", survivorsA, battle),
+            B: survivorSummary(battle.teamB, "B", survivorsB, battle)
           },
           finalPower: { A: outcome.totalA, B: outcome.totalB },
           highestPower: { A: outcome.highA, B: outcome.highB },
+          teamAPower: outcome.totalA,
+          teamBPower: outcome.totalB,
+          teamACount: survivorsA.length,
+          teamBCount: survivorsB.length,
+          battleType: `${survivorsA.length}v${survivorsB.length}`,
+           finalBattleType: `${survivorsA.length}v${survivorsB.length}`,
+           finalSurvivorsA: outcome.duel ? [outcome.duel.fighterA] : survivorSummary(battle.teamA, "A", survivorsA, battle).members,
+           finalSurvivorsB: outcome.duel ? [outcome.duel.fighterB] : survivorSummary(battle.teamB, "B", survivorsB, battle).members,
+           finalPowerA: outcome.totalA,
+           finalPowerB: outcome.totalB,
+           duel: outcome.duel ?? null,
+           tieBreak: outcome.tieBreak ?? null,
+          winner: outcome.winningTeam.name,
           decision: outcome.decision
         }
       : { skipped: true, reason: `${endedAfter === "phase-one" ? "第一" : "第二"}阶段后一方已全灭` };
@@ -421,9 +601,13 @@
       phaseTwo: phaseTwoRecord,
       phaseThree: phaseThreeRecord,
       endedAfter: bothAlive ? "phase-three" : endedAfter,
+      selectedTactic: battle.selectedTactic,
+      tacticUsed: battle.tacticUsed,
+      tacticEvents: battle.tacticEvents,
       winner: { teamId:outcome.winningTeam.id, teamName:outcome.winningTeam.name, side:outcome.winningTeam.id === battle.teamA.id ? "A" : "B", reason:outcome.decision }
     };
     battle.phase = bothAlive ? "PHASE_THREE" : "MATCH_RESULT";
+    battle.phaseThreePresentation = bothAlive ? { step: "ready", revealedCount: 0 } : null;
     battle.finalSurvivorsA = survivorsA;
     battle.finalSurvivorsB = survivorsB;
     battle.lastDuel = null;
@@ -431,7 +615,7 @@
 
   function confirmBattleResult() {
     const battle = mode.battle;
-    if (!battle?.pendingRecord) return;
+    if (!battle?.pendingRecord || battle.phase !== "MATCH_RESULT") return;
     const { worldCup } = gameState();
     app.completeScheduledMatch(battle.match, worldCup, battle.pendingRecord);
     mode.recentResults.unshift(battle.match);
@@ -556,8 +740,9 @@
   function miniCard(name, status, selectable, selected = false, team = null) {
     const character = getCharacter(name);
     const battleType = getBattleType(character);
-    return `<button type="button" class="player-fighter ${status.className} ${selected ? "is-selected" : ""}" ${selectable ? `data-player-fighter="${name}"` : "disabled"}>
-      ${team?.captainName === name ? `<em class="captain-badge">队长</em>` : ""}<span>${character.faction} · ${character.tier}${character.subTier} · ${BATTLE_TYPE_ICONS[battleType]} ${battleType}</span><strong>${name}</strong><b>综合战力 ${calculateCombatPower(character)}</b><i>${status.label}</i></button>`;
+    const boosted = mode.battle?.selectedTactic === "全军振奋" && team?.id === mode.playerTeamId;
+    return `<button type="button" class="player-fighter ${status.className} ${selected ? "is-selected" : ""} ${boosted ? "is-tactic-buffed" : ""}" ${boosted ? `style="--entry:${team.members.indexOf(name)}"` : ""} ${selectable ? `data-player-fighter="${name}"` : "disabled"}>
+      ${team?.captainName === name ? `<em class="captain-badge">队长</em>` : ""}<span>${character.faction} · ${character.tier}${character.subTier} · ${BATTLE_TYPE_ICONS[battleType]} ${battleType}</span><strong>${name}</strong><b>综合战力 ${calculateCombatPower(character)}${boosted ? ` → ${calculateCombatPower(character) + 2}` : ""}</b><i>${status.label}</i></button>`;
   }
 
   function opponentCardMarkup(name, status, battle, team, index) {
@@ -589,6 +774,11 @@
   }
 
   function duelPresentation(duel) {
+    if (duel.evaded) return {
+      attackerName: null, targetNames: new Set(), damageA: 0, damageB: 0,
+      healthA: 100, healthB: 100, kind: "evade", critical: false,
+      headline: "闪避！双方及时撤回！", result: "本场无人阵亡"
+    };
     if (duel.mutualDestruction) {
       return {
         attackerName: null,
@@ -643,6 +833,32 @@
     </div>`;
   }
 
+  function renderTacticSelect() {
+    const match = playerMatchInCurrentStage();
+    if (!match) { mode.screen = "DASHBOARD"; render(); return; }
+    content.innerHTML = `<div class="tactic-select-view"><div class="battle-stage-line">${stageLabelForMatch(match)} · 赛前筹谋</div><h2>选择本场战术</h2><p>随机获得三张不同战术；只能携带一张，成功发动后本场不可再次使用。</p><div class="tactic-choice-grid">${mode.tacticOptions.map((item, index) => `<button type="button" class="tactic-choice" data-player-action="choose-tactic" data-tactic="${item.name}" style="--entry:${index}"><small>${item.timing}</small><strong>${item.name}</strong><span>${item.description}</span><em>选择此战术</em></button>`).join("")}</div><button type="button" class="tactic-return" data-player-action="leave-tactic-select">返回赛程</button></div>`;
+  }
+
+  function tacticPanel(battle) {
+    const tactic = tactics.find((item) => item.name === battle.selectedTactic);
+    if (!tactic) return "";
+    const available = !battle.tacticUsed;
+    const inDuel = ["PHASE_ONE", "PHASE_TWO"].includes(battle.phase) && !battle.awaitingContinue && !battle.pendingEvade;
+    let button = "";
+    if (available && inDuel && battle.selectedTactic === "侦察") {
+      const opponent = battle.playerSide === "A" ? battle.teamB : battle.teamA;
+      const eligible = opponent.members.some((name) => !battle.eliminated.has(name) && !battle.revealedOpponent.has(name) && name !== battle.pendingAIChoice?.name);
+      button = `<button type="button" data-player-action="use-tactic" ${eligible ? "" : "disabled"}>发动侦察</button>`;
+    } else if (available && inDuel && battle.selectedTactic === "背水一战") {
+      button = `<button type="button" data-player-action="use-tactic" ${battle.playerSelection && canUseBacksToWall(battle) && !battle.tacticArmed ? "" : "disabled"}>${battle.tacticArmed ? "本轮已准备" : "发动背水一战"}</button>`;
+    } else if (available && inDuel && battle.selectedTactic === "奇兵突袭") {
+      button = `<button type="button" data-player-action="use-tactic" ${battle.playerSelection && !battle.tacticArmed ? "" : "disabled"}>${battle.tacticArmed ? "本轮已声明" : "声明奇兵突袭"}</button>`;
+    } else if (available && battle.phase === "PHASE_THREE" && battle.selectedTactic === "军心振奋") {
+      button = `<button type="button" data-player-action="use-morale">发动军心振奋 +6</button>`;
+    }
+    return `<section class="battle-tactic-panel ${available ? "is-available" : "is-used"}"><div><small>本场战术 · ${tactic.timing}</small><strong>${tactic.name}</strong><span>${tactic.description}</span></div><em>${available ? "可使用" : "已使用"}</em>${button}${battle.tacticMessage ? `<p class="tactic-broadcast" role="status">${battle.tacticMessage}</p>` : ""}</section>`;
+  }
+
   function runBattlePresentation(battle, presentationKey) {
     if (typeof window.requestAnimationFrame !== "function") return;
     const arena = content.querySelector?.(`[data-presentation-key="${presentationKey}"]`);
@@ -673,37 +889,71 @@
     const alreadyPresented = battle.presentedDuelKey === presentationKey;
     const card = (fighter, side) => {
       const won = duel.winner?.name === fighter.name;
-      const result = duel.mutualDestruction ? "同归于尽" : won ? "胜" : "阵亡";
+      const result = battle.pendingEvade ? "胜负待定" : duel.evaded ? "存活" : duel.mutualDestruction ? "同归于尽" : won ? "胜" : "阵亡";
       const isAttacker = presentation.attackerName === fighter.name;
       const isTarget = presentation.targetNames.has(fighter.name);
-      const damage = fighter.side === "A" ? presentation.damageA : presentation.damageB;
-      const targetHealth = fighter.side === "A" ? presentation.healthA : presentation.healthB;
+      const damage = battle.pendingEvade ? 0 : fighter.side === "A" ? presentation.damageA : presentation.damageB;
+      const targetHealth = battle.pendingEvade ? 100 : fighter.side === "A" ? presentation.healthA : presentation.healthB;
       const battleType = getBattleType(fighter);
       const archetype = battleType === "谋略" ? "is-strategist" : battleType === "防守" ? "is-defender" : "is-warrior";
       const typeEffect = fighter.typeMultiplier > 1 ? "属性克制 +6%" : fighter.typeMultiplier < 1 ? "受到克制 -6%" : "同类型 ±0%";
       const upsetEffect = duel.upset?.upsetTriggered && fighter.side === duel.upset.underdogSide ? ` · ${getUpsetAnnouncement(duel.upset).boost}` : "";
       const initialWidth = alreadyPresented ? targetHealth : 100;
       const isCaptain = fighter.name === (fighter.side === "A" ? battle.teamA.captainName : battle.teamB.captainName);
-      return `<div class="arena-fighter ${side} ${won ? "is-winner" : "is-loser"} ${isAttacker ? "is-attacker" : ""} ${isTarget ? "is-target" : ""} ${archetype}">
+      return `<div class="arena-fighter ${side} ${duel.evaded || battle.pendingEvade ? "is-survivor" : won ? "is-winner" : "is-loser"} ${isAttacker ? "is-attacker" : ""} ${isTarget ? "is-target" : ""} ${archetype}">
         <div class="fighter-shell">${isCaptain ? `<em class="arena-captain-mark">队长出战</em>` : ""}${portraitMarkupForBattle(fighter)}<small>${fighter.teamName}</small><strong>${fighter.name}</strong><em class="fighter-battle-type">${BATTLE_TYPE_ICONS[battleType]} ${battleType} · ${typeEffect}${upsetEffect}</em><b title="原综合战力 ${fighter.power}；正常战力 ${fighter.normalBattlePower}">最终 ${fighter.battlePower}</b><i>${result}</i>
           <div class="fighter-health" aria-label="${fighter.name}战斗状态"><span class="fighter-health-fill" data-target-health="${targetHealth}" style="width:${initialWidth}%"></span></div>
           ${damage ? `<span class="damage-float">-${damage}</span>` : ""}
         </div></div>`;
     };
-    return `<div class="duel-presentation"><div class="matchup-reveal"><strong>${duel.fighterA.name} <small>[${typeA}]</small></strong><i>VS</i><strong>${duel.fighterB.name} <small>[${typeB}]</small></strong><span>${counterText}</span>${captainMessages.length ? `<em>${captainMessages.join(" · ")}</em>` : ""}</div><div class="battle-callout ${presentation.kind} ${presentation.critical ? "is-critical" : ""}" role="status"><span>${presentation.headline}</span><strong>${presentation.result}${captainMessages.length ? ` · ${captainMessages.join(" · ")}` : ""}</strong></div>
+    return `<div class="duel-presentation"><div class="matchup-reveal"><strong>${duel.fighterA.name} <small>[${typeA}]</small></strong><i>VS</i><strong>${duel.fighterB.name} <small>[${typeB}]</small></strong><span>${counterText}</span>${captainMessages.length && !battle.pendingEvade ? `<em>${captainMessages.join(" · ")}</em>` : ""}</div><div class="battle-callout ${battle.pendingEvade ? "evade-pending" : presentation.kind} ${presentation.critical ? "is-critical" : ""}" role="status"><span>${battle.pendingEvade ? "即将落败：是否发动闪避？" : battle.tacticMessage && ["全军振奋", "背水一战", "奇兵突袭", "闪避"].includes(battle.selectedTactic) ? battle.tacticMessage : presentation.headline}</span><strong>${battle.pendingEvade ? "双方基础战力差不超过 5，可让本场无人阵亡" : presentation.result}${captainMessages.length && !battle.pendingEvade ? ` · ${captainMessages.join(" · ")}` : ""}</strong></div>
       <div class="duel-arena ${alreadyPresented ? "is-resolved" : ""} effect-${presentation.kind}" data-presentation-key="${presentationKey}"><div class="battle-energy" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>${card(duel.fighterA,"from-left")}<span class="arena-vs">VS</span>${card(duel.fighterB,"from-right")}</div></div>`;
+  }
+
+  function renderPhaseThree(battle) {
+    const record = battle.pendingRecord.phaseThree;
+    const step = battle.phaseThreePresentation.step;
+    const multiple = record.teamACount > 1 || record.teamBCount > 1;
+    const revealPower = !["ready", "lineup"].includes(step);
+    const showOutcome = step === "outcome";
+    const teamCard = (member, side) => {
+      const isCaptain = member.name === (side === "A" ? battle.teamA.captainName : battle.teamB.captainName);
+      const status = showOutcome ? (battle.pendingRecord.winner.side === side ? "胜" : "败") : "";
+      const type = member.battleType;
+      const power = record.duel ? (side === "A" ? record.duel.fighterA.battlePower : record.duel.fighterB.battlePower) : member.effectivePower;
+      return `<div class="arena-fighter ${side === "A" ? "from-left" : "from-right"} ${showOutcome ? (status === "胜" ? "is-winner" : "is-loser") : ""}"><div class="fighter-shell">${isCaptain ? `<em class="arena-captain-mark">队长出战</em>` : ""}${portraitMarkupForBattle(member)}<small>${member.teamName}</small><strong>${member.name}</strong><em class="fighter-battle-type">${BATTLE_TYPE_ICONS[type]} ${type}</em>${revealPower ? `<b>最终 ${power}</b>${record.duel && power !== member.effectivePower ? `<span class="fighter-effective-power">综合战力 ${member.effectivePower}</span>` : ""}` : ""}${status ? `<i>${status}</i>` : ""}</div></div>`;
+    };
+    const team = (members, side) => `<div class="final-battle-team ${side} ${members.length > 1 ? "is-multiple" : ""}">${members.map((member) => teamCard(member, side)).join("")}</div>`;
+    const equation = (members, side) => {
+      const bonus = battle.selectedTactic === "军心振奋" && battle.tacticUsed && side === battle.playerSide ? " + 战术 6" : "";
+      return members.length > 1 || bonus ? `<span>${members.map((member) => member.effectivePower).join(" + ")}${bonus} = ${side === "A" ? record.finalPower.A : record.finalPower.B}</span>` : "";
+    };
+    const buttonLabel = { ready:"继续", lineup:"继续", power:"继续", gather:"继续", totals:"继续", clash:"继续", outcome:"查看比赛结果" }[step];
+    content.innerHTML = `<div class="player-battle-view final-battle-view step-${step}"><button class="battle-menu-button" type="button" data-player-action="open-pause" aria-label="打开战斗菜单"><span>☰</span> 菜单</button>
+      <div class="battle-stage-line">${stageLabelForMatch(battle.match)} · 最后一轮</div>
+      <div class="battle-title"><div><span>你的球队</span><h2>${battle.playerSide === "A" ? battle.teamA.name : battle.teamB.name}</h2></div><i>对阵</i><div><span>电脑球队</span><h2>${battle.playerSide === "A" ? battle.teamB.name : battle.teamA.name}</h2></div></div>
+      <div class="battle-scoreboard"><span>${battle.teamA.name}</span><strong>${record.teamACount} <i>VS</i> ${record.teamBCount}</strong><span>${battle.teamB.name}</span><em>最终幸存武将出战</em></div>
+      ${tacticPanel(battle)}
+      <div class="duel-presentation"><div class="matchup-reveal"><strong>${battle.teamA.name}</strong><i>VS</i><strong>${battle.teamB.name}</strong>${multiple ? `<span>${record.finalBattleType.replace("v", " VS ")} · 合击战</span>` : ""}</div>
+      <div class="duel-arena final-duel-arena ${step === "clash" ? "is-resolving effect-clash" : ""} ${showOutcome ? "is-resolved" : ""}"><div class="battle-energy" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>${team(record.finalSurvivorsA, "A")}<span class="arena-vs">VS</span>${team(record.finalSurvivorsB, "B")}</div></div>
+      ${multiple && ["gather", "totals", "clash", "outcome"].includes(step) ? `<div class="final-battle-equation">${equation(record.finalSurvivorsA, "A")}<i>VS</i>${equation(record.finalSurvivorsB, "B")}</div>` : ""}
+      ${multiple && ["totals", "clash", "outcome"].includes(step) ? `<div class="final-battle-faceoff"><strong>${record.finalPower.A}</strong><i>VS</i><strong>${record.finalPower.B}</strong></div>` : ""}
+      ${showOutcome ? `<p class="final-battle-outcome" role="status">${battle.pendingRecord.winner.side === battle.playerSide ? "本轮获胜！" : "本轮落败"}</p>` : ""}
+      <button class="battle-next-button" type="button" data-player-action="advance-phase-three">${buttonLabel}</button>${pauseMenuMarkup()}</div>`;
   }
 
   function renderBattle() {
     const battle = mode.battle;
+    if (battle.phase === "PHASE_THREE") {
+      renderPhaseThree(battle);
+      return;
+    }
     const playerTeam = battle.playerSide === "A" ? battle.teamA : battle.teamB;
     const opponentTeam = battle.playerSide === "A" ? battle.teamB : battle.teamA;
     const playerSide = battle.playerSide;
     const opponentSide = playerSide === "A" ? "B" : "A";
-    if (["PHASE_THREE", "MATCH_RESULT"].includes(battle.phase)) {
+    if (battle.phase === "MATCH_RESULT") {
       const record = battle.pendingRecord;
-      const totalA = battle.finalSurvivorsA.reduce((sum,name)=>sum+calculateCombatPower(getCharacter(name)),0);
-      const totalB = battle.finalSurvivorsB.reduce((sum,name)=>sum+calculateCombatPower(getCharacter(name)),0);
       const playerWon = record.winner.teamId === mode.playerTeamId;
       const playerSurvivors = playerSide === "A" ? battle.finalSurvivorsA : battle.finalSurvivorsB;
       const opponentSurvivors = playerSide === "A" ? battle.finalSurvivorsB : battle.finalSurvivorsA;
@@ -721,9 +971,10 @@
               : { title:"战败！", subtitle:"此战未能取胜", className:"is-defeat" };
       const byeA = battle.phaseTwo?.byesA || [];
       const byeB = battle.phaseTwo?.byesB || [];
-      content.innerHTML = `<div class="player-battle-view"><button class="battle-menu-button" type="button" data-player-action="open-pause" aria-label="打开战斗菜单"><span>☰</span> 菜单</button><div class="battle-stage-line">${stageLabelForMatch(battle.match)} · ${battle.phase === "PHASE_THREE" ? "第三阶段" : "全灭判定"}</div>
+      content.innerHTML = `<div class="player-battle-view"><button class="battle-menu-button" type="button" data-player-action="open-pause" aria-label="打开战斗菜单"><span>☰</span> 菜单</button><div class="battle-stage-line">${stageLabelForMatch(battle.match)} · ${battle.pendingRecord.phaseThree.skipped ? "全灭判定" : "最后一轮"}</div>
         <div class="battle-result-announcement ${announcement.className}" role="status"><div class="result-rays" aria-hidden="true"></div><span>${announcement.subtitle}</span><h2>${announcement.title}</h2><p>${playerWon ? "你击败了敌方队伍！" : "整军再战，胜负尚未定论。"}</p></div>
-        <div class="final-survivors"><section><h3>${battle.teamA.name}</h3><p>${battle.finalSurvivorsA.join("、") || "无幸存者"}</p><strong>${totalA}</strong><small>最终总战力</small></section><i>VS</i><section><h3>${battle.teamB.name}</h3><p>${battle.finalSurvivorsB.join("、") || "无幸存者"}</p><strong>${totalB}</strong><small>最终总战力</small></section></div>
+        ${tacticPanel(battle)}
+        ${record.phaseThree.skipped ? `<div class="final-survivors"><section><h3>${battle.teamA.name}</h3><p>${battle.finalSurvivorsA.join("、") || "无幸存者"}</p></section><i>VS</i><section><h3>${battle.teamB.name}</h3><p>${battle.finalSurvivorsB.join("、") || "无幸存者"}</p></section></div>` : ""}
         ${byeA.length || byeB.length ? `<p class="battle-bye-summary">第二阶段轮空：A队 ${byeA.join("、") || "无"}；B队 ${byeB.join("、") || "无"}</p>` : ""}
         <button class="battle-next-button" type="button" data-player-action="confirm-result">查看赛后总结</button>${pauseMenuMarkup()}</div>`;
       return;
@@ -747,11 +998,13 @@
       <div class="battle-stage-line">${stageLabelForMatch(battle.match)} · ${phaseName} · 第${currentDuel}场 / ${totalDuels}场</div>
       <div class="battle-title"><div><span>你的球队</span><h2>${playerTeam.name}</h2></div><i>对阵</i><div><span>电脑球队</span><h2>${opponentTeam.name}</h2></div></div>
       <div class="battle-scoreboard"><span>${playerTeam.name}</span><strong>${playerScore} <i>:</i> ${opponentScore}</strong><span>${opponentTeam.name}</span><em>当前总比分 · 第${currentDuel}回合</em></div>
+      ${tacticPanel(battle)}
       ${duelArenaMarkup(battle)}
       <div class="battle-status-line"><span>我方已出战 ${playerPlayed.length ? playerPlayed.join("、") : "暂无"}</span><span>对方已出战 ${opponentPlayed.length ? opponentPlayed.join("、") : "暂无"}</span><span>我方本阶段可选 ${playerAvailable.length} 人 · 对方 ${opponentAvailable.length} 人</span></div>
       <section class="fighter-selection"><h3>${battle.awaitingContinue ? "本轮结果" : battle.playerSelection ? "已锁定武将，请确认出战" : "选择你的出战武将"}</h3><div class="player-fighter-grid">${playerTeam.members.map((name) => miniCard(name, fighterStatus(name, playerSide, battle), !battle.awaitingContinue && playerAvailable.includes(name), battle.playerSelection === name, playerTeam)).join("")}</div></section>
       <section class="opponent-roster"><h3>对手情报 <small>已公开 ${battle.revealedOpponent.size} 人 · 尚有 ${opponentAvailable.length} 人可出战 · 本回合人选已由电脑秘密锁定</small></h3><div>${opponentTeam.members.map((name, index) => opponentCardMarkup(name, fighterStatus(name, opponentSide, battle), battle, opponentTeam, index)).join("")}</div></section>
-      ${battle.playerSelection && !battle.awaitingContinue ? `<button class="battle-confirm-button" type="button" data-player-action="confirm-fighter">确认出战</button>` : ""}
+      ${battle.playerSelection && !battle.awaitingContinue && !battle.pendingEvade ? `<button class="battle-confirm-button" type="button" data-player-action="confirm-fighter">确认出战</button>` : ""}
+      ${battle.pendingEvade ? `<div class="evade-actions"><button type="button" data-player-action="use-evade">发动闪避 · 双方存活</button><button type="button" data-player-action="decline-evade">接受正常结果</button></div>` : ""}
       ${battle.awaitingContinue ? `<button class="battle-next-button" type="button" data-player-action="continue-duel">${phase.duels.length === totalDuels ? "结束本阶段" : "进入下一场"}</button>` : ""}${pauseMenuMarkup()}
     </div>`;
     if (needsPresentation) runBattlePresentation(battle, presentationKey);
@@ -886,7 +1139,8 @@
   function render() {
     if (!mode.playerTeamId || !gameState().worldCup) return;
     app.refreshCupNavigation?.();
-    if (mode.screen === "BATTLE") renderBattle();
+    if (mode.screen === "TACTIC_SELECT") renderTacticSelect();
+    else if (mode.screen === "BATTLE") renderBattle();
     else if (mode.screen === "POST_MATCH") renderPostMatch();
     else if (mode.screen === "FINAL_FOUR") renderFinalFour();
     else if (mode.screen === "ELIMINATED") renderEliminated();
@@ -905,8 +1159,15 @@
     const pauseActions = ["resume-battle", "restart-battle", "return-main-menu", "exit-battle"];
     if (mode.pauseMenuOpen && !pauseActions.includes(action)) return;
     if (action === "enter-match") startNextPlayerMatch();
+    else if (action === "choose-tactic") chooseTactic(event.target.closest("[data-tactic]")?.dataset.tactic);
+    else if (action === "leave-tactic-select") { mode.tacticOptions = []; mode.screen = "DASHBOARD"; render(); }
     else if (action === "confirm-fighter") confirmPlayerFighter();
+    else if (action === "use-tactic") useTacticBeforeDuel();
+    else if (action === "use-morale") useMoraleTactic();
+    else if (action === "use-evade") resolveEvade(true);
+    else if (action === "decline-evade") resolveEvade(false);
     else if (action === "continue-duel") continueBattle();
+    else if (action === "advance-phase-three") advancePhaseThree();
     else if (action === "confirm-result") confirmBattleResult();
     else if (action === "continue-tournament") continueTournament();
     else if (action === "continue-final-four") continueFromFinalFour();
@@ -929,11 +1190,16 @@
     startNewEdition,
     render,
     startNextPlayerMatch,
+    chooseTactic,
+    useTacticBeforeDuel,
+    useMoraleTactic,
+    resolveEvade,
     choosePlayerFighter,
     confirmPlayerFighter,
     selectAICombatant,
     chooseAICharacter: selectAICombatant,
     continueBattle,
+    advancePhaseThree,
     confirmBattleResult,
     continueTournament,
     continueFromFinalFour,
@@ -942,7 +1208,7 @@
     closePauseMenu,
     restartBattle,
     exitBattle,
-    isBattleActive: () => mode.screen === "BATTLE",
+    isBattleActive: () => ["BATTLE", "TACTIC_SELECT"].includes(mode.screen),
     getState: () => mode,
     getPlayerTeam
   });

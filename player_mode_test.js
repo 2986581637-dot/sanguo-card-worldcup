@@ -9,14 +9,16 @@ let seed=942731;
 function random(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;}
 const testMath=Object.create(Math);testMath.random=random;
 const context=vm.createContext({window:{clearTimeout(){},setTimeout(){return 1;},scrollTo(){}},document,console:{log(){},error(...a){consoleErrors.push(a);}},Math:testMath,Set,Map,Object,Array,Number,String,TypeError,RangeError});
-for(const file of["characters.js","game.js","playerMode.js"])vm.runInContext(fs.readFileSync(path.join(__dirname,file),"utf8"),context,{filename:file});
+for(const file of["characters.js","tactics.js","game.js","playerMode.js"])vm.runInContext(fs.readFileSync(path.join(__dirname,file),"utf8"),context,{filename:file});
 const app=context.window.sanguoApp,player=context.window.playerMode;
 function assert(v,m){if(!v)throw new Error(m);}
 
-let manualMatches=0,knockoutManualMatches=0,phaseTwoMatches=0,byeMatches=0,phaseThreeMatches=0,animationChecks=0,menuChecks=0,resultPresentationChecks=0,finalFourChecks=0,awardCeremonyChecks=0,captainPresentationChecks=0,exitChecks=0,simultaneousDecisionChecks=0;
+let manualMatches=0,knockoutManualMatches=0,phaseTwoMatches=0,byeMatches=0,phaseThreeMatches=0,phaseThreeStepChecks=0,animationChecks=0,menuChecks=0,resultPresentationChecks=0,finalFourChecks=0,awardCeremonyChecks=0,captainPresentationChecks=0,exitChecks=0,simultaneousDecisionChecks=0;
 
 function playCurrentPlayerMatch(){
   player.startNextPlayerMatch();
+  assert(player.getState().screen==="TACTIC_SELECT"&&player.getState().tacticOptions.length===3,"赛前未出现三选一战术");
+  player.chooseTactic(player.getState().tacticOptions.find(item=>!["全军振奋","军心振奋"].includes(item.name)).name);
   assert(player.getState().screen==="BATTLE","玩家比赛没有进入专门战斗界面");
   let openingBattle=player.getState().battle;
   const opponentOpening=openingBattle.playerSide==="A"?openingBattle.teamB:openingBattle.teamA;
@@ -34,12 +36,35 @@ function playCurrentPlayerMatch(){
     player.exitBattle();
     assert(player.getState().screen==="DASHBOARD"&&player.getState().battle===null,"选择阶段退出比赛造成状态错误");
     player.startNextPlayerMatch();
+    player.chooseTactic(player.getState().tacticOptions.find(item=>!["全军振奋","军心振奋"].includes(item.name)).name);
     assert(player.getState().screen==="BATTLE"&&player.getState().battle.pendingAIChoice,"退出后无法重新进入同一场待赛比赛");
     exitChecks+=1;
   }
   menuChecks+=1;
   while(player.getState().screen==="BATTLE"){
     const battle=player.getState().battle;
+    if(battle.phase==="PHASE_THREE"){
+      const record=battle.pendingRecord.phaseThree;
+      const multiple=record.teamACount>1||record.teamBCount>1;
+      assert(battle.match.status==="pending"&&battle.phaseThreePresentation.step==="ready","最后一轮开始前提交了结果");
+      let html=nodes.get("#cup-content").innerHTML;
+      assert(html.includes("duel-arena final-duel-arena")&&html.includes("arena-vs")&&!html.includes("battle-result-announcement")&&!html.includes("决胜合战"),"最后一轮没有沿用普通战场");
+      for(const step of ["lineup","power",...(multiple?["gather","totals"]:[]),"clash","outcome"]){
+        player.advancePhaseThree();
+        html=nodes.get("#cup-content").innerHTML;
+        assert(battle.phaseThreePresentation.step===step,`最后一轮未进入${step}`);
+        assert(html.includes("duel-arena final-duel-arena"),"最后一轮切换了独立页面");
+        if(step!=="outcome")assert(!html.includes("本轮获胜")&&!html.includes("本轮落败")&&!html.includes("battle-result-announcement"),"最后一轮提前泄露胜者");
+        if(step==="power")for(const member of [...record.finalSurvivorsA,...record.finalSurvivorsB])assert(html.includes(member.name)&&html.includes(`${member.effectivePower}`),"未显示参战武将有效战力");
+        if(step==="totals")assert(html.includes(`${record.finalPower.A}`)&&html.includes(`${record.finalPower.B}`),"合击战力未在战场显示");
+        if(!multiple)assert(!html.includes("final-battle-equation")&&!html.includes("final-battle-faceoff")&&!html.includes("合击战"),"1v1错误显示合击加总");
+      }
+      assert(html.includes("is-winner")&&html.includes("is-loser"),"胜负卡牌没有区分");
+      player.advancePhaseThree();
+      assert(battle.phase==="MATCH_RESULT"&&nodes.get("#cup-content").innerHTML.includes("battle-result-announcement"),"最后一轮结束后未进入比赛结果");
+      phaseThreeStepChecks+=1;
+      continue;
+    }
     if(battle.pendingRecord){
       const resultHtml=nodes.get("#cup-content").innerHTML;
       assert(resultHtml.includes("battle-result-announcement")&&(resultHtml.includes("胜利")||resultHtml.includes("战败")||resultHtml.includes("团灭")||resultHtml.includes("全军覆没")||resultHtml.includes("同归于尽")),"战斗结束缺少胜败播报");
@@ -50,9 +75,15 @@ function playCurrentPlayerMatch(){
       }
       if(!battle.pendingRecord.phaseThree.skipped){
         phaseThreeMatches+=1;
-        const a=battle.pendingRecord.phaseThree.survivors.A.members.reduce((s,f)=>s+f.power,0);
-        const b=battle.pendingRecord.phaseThree.survivors.B.members.reduce((s,f)=>s+f.power,0);
-        assert(a===battle.pendingRecord.phaseThree.finalPower.A&&b===battle.pendingRecord.phaseThree.finalPower.B,"第三阶段总战力错误");
+        const final=battle.pendingRecord.phaseThree;
+        const multiple=final.teamACount>1||final.teamBCount>1;
+        assert(final.finalBattleType===`${final.teamACount}v${final.teamBCount}`,"最后一轮人数记录错误");
+        assert(final.decision===(multiple?"combined-power":"normal-duel"),"最后一轮判定类型错误");
+        if(multiple){
+          const a=final.survivors.A.members.reduce((sum,f)=>sum+f.effectivePower,0);
+          const b=final.survivors.B.members.reduce((sum,f)=>sum+f.effectivePower,0);
+          assert(a===final.finalPower.A&&b===final.finalPower.B,"合击战未使用有效战力总和");
+        }else assert(final.duel&&final.finalPower.A===final.duel.fighterA.battlePower&&final.finalPower.B===final.duel.fighterB.battlePower,"1v1未复用普通单挑结算");
       }
       player.confirmBattleResult();
       break;
@@ -74,6 +105,7 @@ function playCurrentPlayerMatch(){
     assert(!player.getState().battle.lastDuel,"玩家选择后AI提前完成出牌");
     simultaneousDecisionChecks+=1;
     player.confirmPlayerFighter();
+    if(player.getState().battle.pendingEvade)player.resolveEvade(false);
     html=nodes.get("#cup-content").innerHTML;
     const lastDuel=player.getState().battle.lastDuel;
     const characterA=context.window.CHARACTERS.find(character=>character.name===lastDuel.fighterA.name);
@@ -107,6 +139,48 @@ function playCurrentPlayerMatch(){
   manualMatches+=1;
   if(record.teams&&player.getState().battle.match.stage!=="GROUP_STAGE")knockoutManualMatches+=1;
   return player.getState().battle.match;
+}
+
+const clashShapes=[[1,1],[2,1],[1,2],[2,2],[3,1],[1,3]];
+for(const [countA,countB] of clashShapes){
+  app.runNewDraw();
+  if(countA===1&&countB===1){
+    app.renderCupPage("group-stage");
+    assert(nodes.get("#cup-content").innerHTML.includes('data-action="simulate-next-group" disabled'),"玩家征程中仍可点击小组赛自动模拟按钮");
+    const protectedMatch=app.getState().tournament.groupStage.matches.find((match)=>match.status==="pending");
+    const gameClickListener=Object.entries(listeners).find(([key])=>key.startsWith("document:click"))[1];
+    gameClickListener({target:{closest(selector){return selector==="[data-action]"?{dataset:{action:"simulate-next-group"}}:null;}}});
+    assert(protectedMatch.status==="pending","玩家征程中仍能绕过手动选将自动结算比赛");
+  }
+  player.startNextPlayerMatch();
+  player.chooseTactic(player.getState().tacticOptions.find(item=>!["全军振奋","军心振奋"].includes(item.name)).name);
+  const battle=player.getState().battle;
+  const membersFor=(team,count,side)=>team.members.slice(0,count).map(name=>{
+    const character=context.window.CHARACTERS.find(item=>item.name===name);
+    return {name,power:character.power,effectivePower:character.power,battleType:"强攻",teamName:team.name,side};
+  });
+  const membersA=membersFor(battle.teamA,countA,"A"),membersB=membersFor(battle.teamB,countB,"B");
+  const powerA=membersA.reduce((sum,item)=>sum+item.effectivePower,0),powerB=membersB.reduce((sum,item)=>sum+item.effectivePower,0);
+  battle.phase="PHASE_THREE";
+  battle.phaseThreePresentation={step:"ready"};
+  battle.finalSurvivorsA=membersA.map(item=>item.name);
+  battle.finalSurvivorsB=membersB.map(item=>item.name);
+  battle.pendingRecord={winner:{side:powerA>=powerB?"A":"B"},phaseThree:{skipped:false,survivors:{A:{members:membersA},B:{members:membersB}},finalSurvivorsA:membersA,finalSurvivorsB:membersB,finalPower:{A:powerA,B:powerB},teamACount:countA,teamBCount:countB,finalBattleType:`${countA}v${countB}`}};
+  player.render();
+  let html=nodes.get("#cup-content").innerHTML;
+  assert(html.includes("duel-arena final-duel-arena")&&!html.includes("battle-result-announcement"),`${countA}v${countB}未使用普通战场`);
+  assert((html.match(/class="arena-fighter /g)||[]).length===countA+countB,`${countA}v${countB}遗漏幸存武将`);
+  player.advancePhaseThree();
+  player.advancePhaseThree();
+  html=nodes.get("#cup-content").innerHTML;
+  for(const member of [...membersA,...membersB])assert(html.includes(member.name)&&html.includes(`最终 ${member.effectivePower}`),`${countA}v${countB}未显示有效战力`);
+  const multiple=countA>1||countB>1;
+  if(multiple){
+    player.advancePhaseThree();player.advancePhaseThree();
+    html=nodes.get("#cup-content").innerHTML;
+    assert(html.includes("final-battle-faceoff")&&html.includes(`${powerA}`)&&html.includes(`${powerB}`),`${countA}v${countB}合击总战力错误`);
+  }else assert(!html.includes("final-battle-equation")&&!html.includes("final-battle-faceoff"),"1v1出现合击加总");
+  player.exitBattle();
 }
 
 const editionReports=[];
@@ -161,6 +235,7 @@ for(let edition=1;edition<=12;edition+=1){
 assert(phaseTwoMatches>0,"测试中从未进入第二阶段");
 assert(byeMatches>0,"测试中从未验证第二阶段轮空");
 assert(phaseThreeMatches>0,"测试中从未进入第三阶段");
+assert(phaseThreeStepChecks===phaseThreeMatches,"玩家第三阶段没有全部逐步播放");
 assert(knockoutManualMatches>0,"测试中从未逐场进行玩家淘汰赛");
 assert(new Set(editionReports.map(report=>report.playerTeam)).size>1,"多届测试没有体现随机分配玩家球队");
 assert(consoleErrors.length===0,`Console错误：${consoleErrors.length}`);
@@ -170,4 +245,4 @@ assert(captainPresentationChecks>0,"测试中没有验证队长出战与胜负�
 assert(exitChecks===1,"测试中没有验证选择阶段安全退出与重进");
 assert(simultaneousDecisionChecks===animationChecks,"AI同时决策检查未覆盖每次玩家出战");
 assert(awardCeremonyChecks===editionReports.length,"颁奖界面没有覆盖所有测试届次");
-console.log(JSON.stringify({editions:editionReports,manualMatches,knockoutManualMatches,phaseTwoMatches,byeMatches,phaseThreeMatches,animationChecks,simultaneousDecisionChecks,captainPresentationChecks,menuChecks,exitChecks,resultPresentationChecks,finalFourChecks,awardCeremonyChecks,consoleErrors:0,allPassed:true},null,2));
+console.log(JSON.stringify({editions:editionReports,clashShapes:clashShapes.map(([a,b])=>`${a}v${b}`),manualMatches,knockoutManualMatches,phaseTwoMatches,byeMatches,phaseThreeMatches,phaseThreeStepChecks,animationChecks,simultaneousDecisionChecks,captainPresentationChecks,menuChecks,exitChecks,resultPresentationChecks,finalFourChecks,awardCeremonyChecks,consoleErrors:0,allPassed:true},null,2));

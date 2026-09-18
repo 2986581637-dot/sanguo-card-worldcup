@@ -8,7 +8,7 @@ function genericNode(){return{dataset:{},hidden:false,disabled:false,innerHTML:"
 const nodes=new Map();
 const documentStub={querySelector(s){if(!nodes.has(s))nodes.set(s,genericNode());return nodes.get(s);},querySelectorAll(){return[];},addEventListener(){}};
 const context=vm.createContext({window:{clearTimeout(){},setTimeout(){return 1;},scrollTo(){}},document:documentStub,console,Math,Set,Map,Object,Array,Number,String,TypeError,RangeError});
-for(const file of["characters.js","game.js","playerMode.js"])vm.runInContext(fs.readFileSync(path.join(__dirname,file),"utf8"),context,{filename:file});
+for(const file of["characters.js","tactics.js","game.js","playerMode.js"])vm.runInContext(fs.readFileSync(path.join(__dirname,file),"utf8"),context,{filename:file});
 const player=context.window.playerMode,roster=context.window.CHARACTERS;
 const aiPool=[roster[0].name,roster[49].name,roster[99].name,roster[149].name];
 const aiRandom=seededRandom(778899);
